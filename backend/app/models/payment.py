@@ -17,27 +17,20 @@ class Payment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # -----------------------------
-    # Foreign keys
-    # -----------------------------
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     adventure_id = db.Column(db.Integer, db.ForeignKey('adventures.id'), nullable=False)
 
     # -----------------------------
     # Relationships
     # -----------------------------
-    # user and adventure backrefs are handled in User and Adventure models
-    booking = db.relationship(
-        'Booking',
-        backref='payment',  # booking.payment
-        uselist=False,
-        cascade='all, delete-orphan'
-    )
+    user = db.relationship('User', back_populates='payments', lazy=True)
+    adventure = db.relationship('Adventure', back_populates='payments', lazy=True)
+    booking = db.relationship('Booking', back_populates='payment_rel', uselist=False, lazy=True)
 
     # -----------------------------
     # Serialization
     # -----------------------------
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {
             'id': self.id,
             'mpesa_receipt_number': self.mpesa_receipt_number,
@@ -52,8 +45,8 @@ class Payment(db.Model):
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),
             'user_id': self.user_id,
-            'user_username': self.user.username if hasattr(self, 'user') and self.user else None,
+            'user_username': self.user.username if self.user else None,
             'adventure_id': self.adventure_id,
-            'adventure_title': self.adventure.title if hasattr(self, 'adventure') and self.adventure else None,
+            'adventure_title': self.adventure.title if self.adventure else None,
             'booking_id': self.booking.id if self.booking else None
         }

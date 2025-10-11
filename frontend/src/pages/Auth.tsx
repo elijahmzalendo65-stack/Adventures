@@ -1,9 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
@@ -11,36 +17,28 @@ import { ArrowLeft } from "lucide-react";
 
 const Auth = () => {
   const navigate = useNavigate();
-  const { login, signup, user } = useAuth();
+  const { user, login, signup } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
-  // Redirect if already logged in
-  if (user) {
-    navigate("/");
-  }
+  useEffect(() => {
+    if (user) navigate("/"); // Redirect if already logged in
+  }, [user, navigate]);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
 
     const formData = new FormData(e.currentTarget);
-    const email = formData.get("email") as string;
+    const identifier = formData.get("username") as string; // username or email
     const password = formData.get("password") as string;
 
-    const success = login(email, password);
+    const success = await login(identifier, password);
 
     if (success) {
-      toast({
-        title: "Login successful!",
-        description: "Welcome back to Coffee & Adventures Tours",
-      });
+      toast({ title: "Login successful!", description: `Welcome back, ${identifier}` });
       navigate("/");
     } else {
-      toast({
-        title: "Login failed",
-        description: "Invalid email or password. Please try again.",
-        variant: "destructive",
-      });
+      toast({ title: "Login failed", description: "Invalid credentials", variant: "destructive" });
     }
 
     setIsLoading(false);
@@ -51,24 +49,17 @@ const Auth = () => {
     setIsLoading(true);
 
     const formData = new FormData(e.currentTarget);
-    const name = formData.get("name") as string;
+    const username = formData.get("username") as string;
     const email = formData.get("email") as string;
     const password = formData.get("password") as string;
 
-    const success = signup(email, password, name);
+    const success = await signup(username, email, password);
 
     if (success) {
-      toast({
-        title: "Account created!",
-        description: "Welcome to Coffee & Adventures Tours",
-      });
+      toast({ title: "Account created!", description: `Welcome, ${username}` });
       navigate("/");
     } else {
-      toast({
-        title: "Signup failed",
-        description: "An account with this email already exists.",
-        variant: "destructive",
-      });
+      toast({ title: "Signup failed", description: "Username or email already exists", variant: "destructive" });
     }
 
     setIsLoading(false);
@@ -100,15 +91,16 @@ const Auth = () => {
                 <TabsTrigger value="signup">Sign Up</TabsTrigger>
               </TabsList>
 
+              {/* LOGIN FORM */}
               <TabsContent value="login">
                 <form onSubmit={handleLogin} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="login-email">Email</Label>
+                    <Label htmlFor="login-username">Username or Email</Label>
                     <Input
-                      id="login-email"
-                      name="email"
-                      type="email"
-                      placeholder="your@email.com"
+                      id="login-username"
+                      name="username"
+                      type="text"
+                      placeholder="Username or Email"
                       required
                     />
                   </div>
@@ -128,15 +120,16 @@ const Auth = () => {
                 </form>
               </TabsContent>
 
+              {/* SIGNUP FORM */}
               <TabsContent value="signup">
                 <form onSubmit={handleSignup} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="signup-name">Full Name</Label>
+                    <Label htmlFor="signup-username">Username</Label>
                     <Input
-                      id="signup-name"
-                      name="name"
+                      id="signup-username"
+                      name="username"
                       type="text"
-                      placeholder="John Kamau"
+                      placeholder="Your username"
                       required
                     />
                   </div>

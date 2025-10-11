@@ -10,7 +10,6 @@ from .routes.mpesa import mpesa_bp
 from .routes.booking import booking_bp
 from .routes.admin import admin_bp
 
-
 def create_app(config_class=Config):
     """
     Flask application factory.
@@ -27,16 +26,16 @@ def create_app(config_class=Config):
     bcrypt.init_app(app)
 
     # -----------------------------
-    # Enable CORS
+    # Enable CORS for frontend
     # -----------------------------
     CORS(
         app,
         supports_credentials=True,
-        resources={r"/api/*": {"origins": "http://localhost:8081"}}
+        resources={r"/api/*": {"origins": ["http://localhost:8081", "*"]}},
     )
 
     # -----------------------------
-    # Register blueprints
+    # Register Blueprints
     # -----------------------------
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(adventures_bp, url_prefix="/api/adventures")
@@ -47,7 +46,7 @@ def create_app(config_class=Config):
     # -----------------------------
     # Root route for testing
     # -----------------------------
-    @app.route("/")
+    @app.route("/", methods=["GET"])
     def index():
         return jsonify({"message": "Welcome to Coffee & Adventures API"})
 

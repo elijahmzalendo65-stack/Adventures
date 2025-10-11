@@ -1,4 +1,3 @@
-# app/routes/booking.py
 from flask import Blueprint, request, jsonify, session
 from datetime import datetime
 from ..extensions import db
@@ -13,60 +12,71 @@ booking_bp = Blueprint('booking', __name__, url_prefix='/api/bookings')
 
 
 # -----------------------------
-# User endpoints
+# Create a new booking
 # -----------------------------
 @booking_bp.route('/', methods=['POST'])
 @login_required
 def create_booking():
-    """Create a new booking for a user."""
     try:
         user_id = session.get('user_id')
-        data = request.get_json()
+        if not user_id:
+            return jsonify({'message': 'Unauthorized'}), 401
 
+        data = request.get_json() or {}
+
+        # Validate required fields
         required_fields = ['adventure_id', 'adventure_date', 'number_of_people']
         is_valid, error_msg = validate_required_fields(data, required_fields)
         if not is_valid:
             return jsonify({'message': error_msg}), 400
 
-        adventure = Adventure.query.filter_by(id=data['adventure_id'], is_active=True).first_or_404()
+        # Fetch adventure
+        adventure = Adventure.query.filter_by(id=data['adventure_id'], is_active=True).first()
+        if not adventure:
+            return jsonify({'message': 'Adventure not found or inactive'}), 404
 
-        # Parse date
+        # Parse adventure date
         try:
-            adventure_datetime = datetime.fromisoformat(data['adventure_date'].replace('Z', '+00:00'))
-            if adventure_datetime < datetime.now():
+            adventure_date = datetime.fromisoformat(data['adventure_date'].replace('Z', '+00:00'))
+            if adventure_date < datetime.utcnow():
                 return jsonify({'message': 'Adventure date must be in the future'}), 400
         except ValueError:
             return jsonify({'message': 'Invalid date format. Use ISO format'}), 400
 
-        if data['number_of_people'] < 1:
+        # Validate number_of_people
+        number_of_people = int(data.get('number_of_people', 1))
+        if number_of_people < 1:
             return jsonify({'message': 'Number of people must be at least 1'}), 400
 
         # Check availability
         confirmed_count = Booking.query.filter(
             Booking.adventure_id == adventure.id,
-            db.func.date(Booking.adventure_date) == adventure_datetime.date(),
+            db.func.date(Booking.adventure_date) == adventure_date.date(),
             Booking.status == 'confirmed'
         ).count()
-
         available_slots = adventure.max_capacity - confirmed_count
-        if data['number_of_people'] > available_slots:
+        if number_of_people > available_slots:
             return jsonify({
                 'message': f'Only {available_slots} slots available',
                 'available_slots': available_slots
             }), 400
 
-        # Create booking (status = pending)
+        # Calculate total amount
+        total_amount = adventure.price * number_of_people
+
+        # Create booking
         booking = Booking(
             user_id=user_id,
             adventure_id=adventure.id,
-            adventure_date=adventure_datetime,
-            number_of_people=data['number_of_people'],
+            adventure_date=adventure_date,
+            number_of_people=number_of_people,
+            total_amount=total_amount,
             special_requests=data.get('special_requests', ''),
-            status='pending'  # Track payment status
+            status='pending'
         )
-        booking.calculate_total_amount()
         db.session.add(booking)
         db.session.commit()
+        db.session.refresh(booking)
 
         return jsonify({'message': 'Booking created successfully', 'booking': booking.to_dict()}), 201
 
@@ -75,25 +85,33 @@ def create_booking():
         return jsonify({'message': 'Failed to create booking', 'error': str(e)}), 500
 
 
+# -----------------------------
+# Initiate M-Pesa payment
+# -----------------------------
 @booking_bp.route('/initiate-payment', methods=['POST'])
 @login_required
 def initiate_payment():
-    """Initiate MPesa payment for a pending booking."""
     try:
         user_id = session.get('user_id')
-        data = request.get_json()
+        data = request.get_json() or {}
+
         booking_id = data.get('booking_id')
         phone_number = data.get('phone_number')
 
         if not booking_id or not phone_number:
             return jsonify({'message': 'Booking ID and phone number are required'}), 400
 
-        booking = Booking.query.filter_by(id=booking_id, user_id=user_id).first_or_404()
+        if len(phone_number) < 10:
+            return jsonify({'message': 'Enter a valid phone number'}), 400
+
+        booking = Booking.query.filter_by(id=booking_id, user_id=user_id).first()
+        if not booking:
+            return jsonify({'message': 'Booking not found'}), 404
 
         if booking.status != 'pending':
-            return jsonify({'message': 'Booking is already paid or cancelled'}), 400
+            return jsonify({'message': 'Booking already paid or cancelled'}), 400
 
-        # Initiate STK Push
+        # Initiate M-Pesa STK Push
         response = initiate_stk_push(
             phone_number=phone_number,
             amount=booking.total_amount,
@@ -108,12 +126,14 @@ def initiate_payment():
             checkout_request_id=response.get('CheckoutRequestID'),
             merchant_request_id=response.get('MerchantRequestID'),
             user_id=user_id,
-            adventure_id=booking.adventure_id
+            adventure_id=booking.adventure_id,
+            status='pending'
         )
         db.session.add(payment)
-        db.session.flush()  # To get payment.id
+        db.session.flush()  # Flush to get payment.id
         booking.payment_id = payment.id
         db.session.commit()
+        db.session.refresh(booking)
 
         return jsonify({
             'message': 'Payment initiated successfully',
@@ -127,19 +147,24 @@ def initiate_payment():
         return jsonify({'message': 'Failed to initiate payment', 'error': str(e)}), 500
 
 
+# -----------------------------
+# Cancel booking
+# -----------------------------
 @booking_bp.route('/<int:booking_id>/cancel', methods=['POST'])
 @login_required
 def cancel_booking(booking_id):
-    """Cancel a booking."""
     try:
         user_id = session.get('user_id')
-        booking = Booking.query.filter_by(id=booking_id, user_id=user_id).first_or_404()
+        booking = Booking.query.filter_by(id=booking_id, user_id=user_id).first()
+        if not booking:
+            return jsonify({'message': 'Booking not found'}), 404
 
         if booking.status not in ['pending', 'confirmed']:
             return jsonify({'message': 'Cannot cancel this booking'}), 400
 
         booking.status = 'cancelled'
         db.session.commit()
+        db.session.refresh(booking)
 
         return jsonify({'message': 'Booking cancelled', 'booking': booking.to_dict()}), 200
 
@@ -148,10 +173,12 @@ def cancel_booking(booking_id):
         return jsonify({'message': 'Failed to cancel booking', 'error': str(e)}), 500
 
 
+# -----------------------------
+# Fetch user bookings
+# -----------------------------
 @booking_bp.route('/', methods=['GET'])
 @login_required
 def get_user_bookings():
-    """Get all bookings of the logged-in user."""
     try:
         user_id = session.get('user_id')
         status = request.args.get('status')
@@ -162,56 +189,14 @@ def get_user_bookings():
         if status:
             query = query.filter_by(status=status)
 
-        pagination = query.order_by(Booking.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+        pagination = query.order_by(Booking.created_at.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
         bookings = pagination.items
+        bookings_list = [b.to_dict() for b in bookings]
 
         return jsonify({
-            'bookings': [b.to_dict() for b in bookings],
-            'total': pagination.total,
-            'pages': pagination.pages,
-            'current_page': page
-        }), 200
-
-    except Exception as e:
-        return jsonify({'message': 'Failed to fetch bookings', 'error': str(e)}), 500
-
-
-# -----------------------------
-# Admin endpoints
-# -----------------------------
-@booking_bp.route('/admin/all', methods=['GET'])
-@login_required
-def get_all_bookings_admin():
-    """Fetch all bookings for the admin dashboard."""
-    try:
-        user_id = session.get('user_id')
-        user = User.query.get(user_id)
-        if not user.is_admin:
-            return jsonify({'message': 'Unauthorized'}), 403
-
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 50, type=int)
-        status = request.args.get('status')
-        search = request.args.get('search', '').lower()
-
-        query = Booking.query.join(User)
-
-        if status:
-            query = query.filter(Booking.status == status)
-        if search:
-            query = query.filter(
-                db.or_(
-                    User.username.ilike(f'%{search}%'),
-                    User.email.ilike(f'%{search}%'),
-                    Booking.id.cast(db.String).ilike(f'%{search}%')
-                )
-            )
-
-        query = query.order_by(Booking.created_at.desc())
-        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-
-        return jsonify({
-            'bookings': [b.to_dict() for b in pagination.items],
+            'bookings': bookings_list,
             'total': pagination.total,
             'pages': pagination.pages,
             'current_page': page

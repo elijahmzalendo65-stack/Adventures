@@ -6,7 +6,7 @@ from app import create_app
 from app.extensions import db
 from app.models.user import User
 
-# Load environment variables from .env
+# Load environment variables
 load_dotenv()
 
 # Create the Flask app
@@ -38,17 +38,17 @@ def create_admin_user():
 
 if __name__ == '__main__':
     with app.app_context():
-        # Create all tables if they do not exist
+        # Create all tables
         try:
             db.create_all()
             print("✅ All tables created successfully.")
         except Exception as e:
             print(f"❌ Failed to create tables: {e}")
 
-        # Ensure there is a default admin user
+        # Ensure default admin user exists
         create_admin_user()
 
-    # Run the Flask app
+    # Run Flask app
     app.run(
         debug=app.config.get('DEBUG', True),
         host=app.config.get('HOST', '127.0.0.1'),

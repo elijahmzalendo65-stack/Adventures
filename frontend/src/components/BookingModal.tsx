@@ -1,40 +1,67 @@
 import { useState } from "react";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarIcon, Smartphone } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import axios from "axios";
 
 interface BookingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  adventureId: number;
+  adventurePrice: number;
+  onBookingCompleted?: (status: "pending" | "completed", bookingId?: number) => void;
 }
 
-const BookingModal = ({ open, onOpenChange }: BookingModalProps) => {
+const BookingModal = ({
+  open,
+  onOpenChange,
+  adventureId,
+  adventurePrice,
+  onBookingCompleted,
+}: BookingModalProps) => {
   const [step, setStep] = useState(1);
   const [date, setDate] = useState<Date>();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     phone: "",
-    package: "",
     guests: "1",
   });
   const [mpesaPhone, setMpesaPhone] = useState("");
   const [processing, setProcessing] = useState(false);
+  const [bookingId, setBookingId] = useState<number | null>(null);
+
+  const totalPrice = adventurePrice * parseInt(formData.guests);
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleBookingSubmit = () => {
-    if (!formData.name || !formData.email || !formData.phone || !formData.package || !date) {
+  // -----------------------------
+  // Step 1: Create Booking
+  // -----------------------------
+  const handleBookingSubmit = async () => {
+    if (!formData.name || !formData.email || !formData.phone || !date) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields",
@@ -42,10 +69,44 @@ const BookingModal = ({ open, onOpenChange }: BookingModalProps) => {
       });
       return;
     }
-    setStep(2);
+
+    try {
+      const res = await axios.post(
+        "http://localhost:5000/api/bookings/",
+        {
+          adventure_id: adventureId,
+          adventure_date: date.toISOString(),
+          number_of_people: parseInt(formData.guests),
+          special_requests: "",
+        },
+        { withCredentials: true }
+      );
+
+      const createdBooking = res.data.booking;
+      setBookingId(createdBooking.id);
+
+      toast({
+        title: "Booking Created!",
+        description: "Your booking has been created. Proceed to payment.",
+      });
+
+      onBookingCompleted && onBookingCompleted("pending", createdBooking.id);
+
+      setStep(2); // Move to payment
+    } catch (err: any) {
+      console.error(err);
+      toast({
+        title: "Booking Failed",
+        description: err?.response?.data?.message || "Something went wrong.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleMpesaPayment = () => {
+  // -----------------------------
+  // Step 2: Initiate M-Pesa Payment
+  // -----------------------------
+  const handleMpesaPayment = async () => {
     if (!mpesaPhone || mpesaPhone.length < 10) {
       toast({
         title: "Invalid Phone Number",
@@ -55,46 +116,61 @@ const BookingModal = ({ open, onOpenChange }: BookingModalProps) => {
       return;
     }
 
-    setProcessing(true);
-    
-    // Simulate M-Pesa payment processing
-    setTimeout(() => {
-      setProcessing(false);
+    if (!bookingId) {
       toast({
-        title: "Payment Initiated!",
-        description: "Please check your phone for the M-Pesa prompt to complete payment",
+        title: "Booking Not Found",
+        description: "Cannot initiate payment without a booking",
+        variant: "destructive",
       });
-      
-      // Simulate payment confirmation
+      return;
+    }
+
+    setProcessing(true);
+
+    try {
+      await axios.post(
+        "http://localhost:5000/api/bookings/initiate-payment",
+        {
+          booking_id: bookingId,
+          phone_number: mpesaPhone,
+        },
+        { withCredentials: true }
+      );
+
+      toast({
+        title: "Payment Initiated",
+        description:
+          "Check your phone for the M-Pesa prompt to complete payment",
+      });
+
+      // Simulate payment confirmation (replace with real webhook)
       setTimeout(() => {
         toast({
           title: "Booking Confirmed!",
-          description: "We'll send you a confirmation email shortly. See you on your adventure!",
+          description: "Payment completed successfully.",
         });
+
+        onBookingCompleted && onBookingCompleted("completed", bookingId);
+
+        // Reset modal state
         onOpenChange(false);
         setStep(1);
-        setFormData({
-          name: "",
-          email: "",
-          phone: "",
-          package: "",
-          guests: "1",
-        });
+        setFormData({ name: "", email: "", phone: "", guests: "1" });
         setMpesaPhone("");
         setDate(undefined);
+        setBookingId(null);
       }, 3000);
-    }, 2000);
+    } catch (err: any) {
+      console.error(err);
+      toast({
+        title: "Payment Failed",
+        description: err?.response?.data?.message || "Payment could not be completed.",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessing(false);
+    }
   };
-
-  const packagePrices: { [key: string]: number } = {
-    "day-trip": 3500,
-    "weekend": 5000,
-    "overnight": 7000,
-  };
-
-  const totalPrice = formData.package && formData.guests 
-    ? packagePrices[formData.package] * parseInt(formData.guests)
-    : 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -104,8 +180,8 @@ const BookingModal = ({ open, onOpenChange }: BookingModalProps) => {
             {step === 1 ? "Book Your Adventure" : "Complete Payment"}
           </DialogTitle>
           <DialogDescription>
-            {step === 1 
-              ? "Fill in your details to reserve your spot" 
+            {step === 1
+              ? "Fill in your details to reserve your spot"
               : "Pay securely with M-Pesa"}
           </DialogDescription>
         </DialogHeader>
@@ -144,22 +220,11 @@ const BookingModal = ({ open, onOpenChange }: BookingModalProps) => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="package">Select Package *</Label>
-              <Select value={formData.package} onValueChange={(value) => handleInputChange("package", value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose your adventure" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="day-trip">Day Trip Adventure - Ksh 3,500</SelectItem>
-                  <SelectItem value="weekend">Weekend Explorer - Ksh 5,000</SelectItem>
-                  <SelectItem value="overnight">Overnight Experience - Ksh 7,000</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="guests">Number of Guests *</Label>
-              <Select value={formData.guests} onValueChange={(value) => handleInputChange("guests", value)}>
+              <Select
+                value={formData.guests}
+                onValueChange={(value) => handleInputChange("guests", value)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -200,14 +265,12 @@ const BookingModal = ({ open, onOpenChange }: BookingModalProps) => {
               </Popover>
             </div>
 
-            {totalPrice > 0 && (
-              <div className="pt-4 border-t">
-                <div className="flex justify-between items-center text-lg font-semibold">
-                  <span>Total Amount:</span>
-                  <span className="text-primary">Ksh {totalPrice.toLocaleString()}</span>
-                </div>
+            <div className="pt-4 border-t">
+              <div className="flex justify-between items-center text-lg font-semibold">
+                <span>Total Amount:</span>
+                <span className="text-primary">Ksh {totalPrice.toLocaleString()}</span>
               </div>
-            )}
+            </div>
 
             <Button className="w-full" onClick={handleBookingSubmit}>
               Proceed to Payment
@@ -217,10 +280,6 @@ const BookingModal = ({ open, onOpenChange }: BookingModalProps) => {
           <div className="space-y-6 py-4">
             <div className="bg-muted p-4 rounded-lg space-y-2">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Package:</span>
-                <span className="font-semibold">{formData.package.replace("-", " ").toUpperCase()}</span>
-              </div>
-              <div className="flex justify-between">
                 <span className="text-muted-foreground">Guests:</span>
                 <span className="font-semibold">{formData.guests}</span>
               </div>
@@ -228,60 +287,32 @@ const BookingModal = ({ open, onOpenChange }: BookingModalProps) => {
                 <span className="text-muted-foreground">Date:</span>
                 <span className="font-semibold">{date ? format(date, "PP") : ""}</span>
               </div>
-              <div className="flex justify-between text-lg pt-2 border-t">
-                <span className="font-semibold">Total:</span>
-                <span className="font-bold text-primary">Ksh {totalPrice.toLocaleString()}</span>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total:</span>
+                <span className="font-semibold">Ksh {totalPrice.toLocaleString()}</span>
               </div>
             </div>
 
-            <div className="space-y-4">
-              <div className="flex items-center justify-center gap-2 text-secondary">
-                <Smartphone className="w-6 h-6" />
-                <span className="font-semibold text-lg">Pay with M-Pesa</span>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="mpesa-phone">M-Pesa Phone Number *</Label>
+            <div className="space-y-2">
+              <Label>M-Pesa Phone Number</Label>
+              <div className="relative">
                 <Input
-                  id="mpesa-phone"
-                  placeholder="0712345678"
+                  placeholder="2547XXXXXXXX"
                   value={mpesaPhone}
                   onChange={(e) => setMpesaPhone(e.target.value)}
-                  maxLength={10}
+                  className="pl-10"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Enter the phone number registered with M-Pesa
-                </p>
-              </div>
-
-              <div className="bg-secondary/10 p-4 rounded-lg text-sm space-y-2">
-                <p className="font-semibold text-secondary">Payment Instructions:</p>
-                <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                  <li>Enter your M-Pesa registered phone number</li>
-                  <li>Click "Pay with M-Pesa" button</li>
-                  <li>You'll receive a prompt on your phone</li>
-                  <li>Enter your M-Pesa PIN to complete payment</li>
-                </ol>
-              </div>
-
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  className="w-full"
-                  onClick={() => setStep(1)}
-                  disabled={processing}
-                >
-                  Back
-                </Button>
-                <Button 
-                  className="w-full bg-secondary hover:bg-secondary/90" 
-                  onClick={handleMpesaPayment}
-                  disabled={processing}
-                >
-                  {processing ? "Processing..." : "Pay with M-Pesa"}
-                </Button>
+                <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               </div>
             </div>
+
+            <Button
+              className="w-full"
+              onClick={handleMpesaPayment}
+              disabled={processing}
+            >
+              {processing ? "Processing..." : "Pay with M-Pesa"}
+            </Button>
           </div>
         )}
       </DialogContent>

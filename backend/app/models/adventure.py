@@ -3,7 +3,7 @@ from datetime import datetime
 
 class Adventure(db.Model):
     __tablename__ = 'adventures'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
@@ -16,25 +16,18 @@ class Adventure(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Foreign key to user (creator)
+
+    # -----------------------------
+    # Foreign key
+    # -----------------------------
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    
+
     # -----------------------------
     # Relationships
     # -----------------------------
-    payments = db.relationship(
-        'Payment', 
-        backref='adventure', 
-        lazy=True, 
-        cascade='all, delete-orphan'
-    )
-    bookings = db.relationship(
-        'Booking', 
-        backref='adventure', 
-        lazy=True, 
-        cascade='all, delete-orphan'
-    )
+    creator = db.relationship('User', back_populates='adventures', lazy=True)
+    bookings = db.relationship('Booking', back_populates='adventure', lazy=True, cascade='all, delete-orphan')
+    payments = db.relationship('Payment', back_populates='adventure', lazy=True, cascade='all, delete-orphan')
 
     # -----------------------------
     # Serialization
@@ -55,6 +48,6 @@ class Adventure(db.Model):
             'updated_at': self.updated_at.isoformat(),
             'user_id': self.user_id,
             'creator_username': self.creator.username if self.creator else None,
-            'payments_count': len(self.payments),
-            'bookings_count': len(self.bookings)
+            'bookings_count': len(self.bookings),
+            'payments_count': len(self.payments)
         }
