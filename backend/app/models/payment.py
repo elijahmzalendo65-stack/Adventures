@@ -1,28 +1,42 @@
-from app.extensions import db
+from ..extensions import db
+from datetime import datetime
 
 class Payment(db.Model):
     __tablename__ = 'payments'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    mpesa_receipt_number = db.Column(db.String(50))
+    mpesa_receipt_number = db.Column(db.String(50), nullable=True)
     phone_number = db.Column(db.String(20), nullable=False)
-    amount = db.Column(db.Float, nullable=False)
+    amount = db.Column(db.Float, nullable=False, default=0.0)
     transaction_date = db.Column(db.DateTime)
     status = db.Column(db.String(50), default='pending')  # pending, completed, failed
-    checkout_request_id = db.Column(db.String(100))
-    merchant_request_id = db.Column(db.String(100))
-    result_code = db.Column(db.Integer)
-    result_desc = db.Column(db.String(255))
-    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-    updated_at = db.Column(db.DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
-    
+    checkout_request_id = db.Column(db.String(100), nullable=True)
+    merchant_request_id = db.Column(db.String(100), nullable=True)
+    result_code = db.Column(db.Integer, nullable=True)
+    result_desc = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # -----------------------------
     # Foreign keys
+    # -----------------------------
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     adventure_id = db.Column(db.Integer, db.ForeignKey('adventures.id'), nullable=False)
-    
-    # Relationship with booking (one-to-one)
-    booking = db.relationship('Booking', backref='payment_rel', uselist=False)
 
+    # -----------------------------
+    # Relationships
+    # -----------------------------
+    # user and adventure backrefs are handled in User and Adventure models
+    booking = db.relationship(
+        'Booking',
+        backref='payment',  # booking.payment
+        uselist=False,
+        cascade='all, delete-orphan'
+    )
+
+    # -----------------------------
+    # Serialization
+    # -----------------------------
     def to_dict(self):
         return {
             'id': self.id,
@@ -38,8 +52,8 @@ class Payment(db.Model):
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),
             'user_id': self.user_id,
+            'user_username': self.user.username if hasattr(self, 'user') and self.user else None,
             'adventure_id': self.adventure_id,
-            'booking_id': self.booking.id if self.booking else None,
-            'adventure_title': self.adventure.title if self.adventure else None,
-            'user_username': self.user.username if self.user else None
+            'adventure_title': self.adventure.title if hasattr(self, 'adventure') and self.adventure else None,
+            'booking_id': self.booking.id if self.booking else None
         }

@@ -1,10 +1,10 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime
-from app.extensions import db
-from app.models.payment import Payment
-from app.models.booking import Booking
-from app.utils.mpesa_utils import initiate_stk_push
-from app.utils.helpers import login_required, validate_required_fields
+from ..extensions import db
+from ..models.payment import Payment
+from ..models.booking import Booking
+from ..utils.mpesa_utils import initiate_stk_push
+from ..utils.helpers import login_required, validate_required_fields
 
 mpesa_bp = Blueprint('mpesa', __name__)
 

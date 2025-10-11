@@ -1,4 +1,5 @@
-from app.extensions import db
+from ..extensions import db
+from datetime import datetime
 
 class Adventure(db.Model):
     __tablename__ = 'adventures'
@@ -13,16 +14,32 @@ class Adventure(db.Model):
     image_url = db.Column(db.String(500))
     max_capacity = db.Column(db.Integer, default=10)
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-    updated_at = db.Column(db.DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # Foreign key to user (creator)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     
+    # -----------------------------
     # Relationships
-    payments = db.relationship('Payment', backref='adventure', lazy=True)
-    bookings = db.relationship('Booking', backref='adventure', lazy=True)
+    # -----------------------------
+    payments = db.relationship(
+        'Payment', 
+        backref='adventure', 
+        lazy=True, 
+        cascade='all, delete-orphan'
+    )
+    bookings = db.relationship(
+        'Booking', 
+        backref='adventure', 
+        lazy=True, 
+        cascade='all, delete-orphan'
+    )
 
-    def to_dict(self):
+    # -----------------------------
+    # Serialization
+    # -----------------------------
+    def to_dict(self) -> dict:
         return {
             'id': self.id,
             'title': self.title,
@@ -37,5 +54,7 @@ class Adventure(db.Model):
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),
             'user_id': self.user_id,
-            'creator_username': self.creator.username if self.creator else None
+            'creator_username': self.creator.username if self.creator else None,
+            'payments_count': len(self.payments),
+            'bookings_count': len(self.bookings)
         }
