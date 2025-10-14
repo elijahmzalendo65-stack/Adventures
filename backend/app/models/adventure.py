@@ -4,11 +4,12 @@ from datetime import datetime
 class Adventure(db.Model):
     __tablename__ = 'adventures'
 
+    
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
     location = db.Column(db.String(200))
-    price = db.Column(db.Float, nullable=False)
+    price = db.Column(db.Float, nullable=False, default=0.0)
     duration = db.Column(db.String(100))
     difficulty = db.Column(db.String(50))
     image_url = db.Column(db.String(500))
@@ -17,21 +18,41 @@ class Adventure(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # -----------------------------
-    # Foreign key
-    # -----------------------------
+    
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
-    # -----------------------------
-    # Relationships
-    # -----------------------------
+   
     creator = db.relationship('User', back_populates='adventures', lazy=True)
-    bookings = db.relationship('Booking', back_populates='adventure', lazy=True, cascade='all, delete-orphan')
-    payments = db.relationship('Payment', back_populates='adventure', lazy=True, cascade='all, delete-orphan')
+    bookings = db.relationship(
+        'Booking',
+        back_populates='adventure',
+        lazy=True,
+        cascade='all, delete-orphan'
+    )
+    payments = db.relationship(
+        'Payment',
+        back_populates='adventure',
+        lazy=True,
+        cascade='all, delete-orphan'
+    )
 
-    # -----------------------------
-    # Serialization
-    # -----------------------------
+    
+    def calculate_available_slots(self, date: datetime = None) -> int:
+        """
+        Calculate available slots for a specific date.
+        Defaults to current date if not provided.
+        """
+        from ..models.booking import Booking  
+        if not date:
+            date = datetime.utcnow()
+        confirmed_count = Booking.query.filter(
+            Booking.adventure_id == self.id,
+            db.func.date(Booking.adventure_date) == date.date(),
+            Booking.status == 'confirmed'
+        ).count()
+        return max(self.max_capacity - confirmed_count, 0)
+
+    
     def to_dict(self) -> dict:
         return {
             'id': self.id,
@@ -49,5 +70,6 @@ class Adventure(db.Model):
             'user_id': self.user_id,
             'creator_username': self.creator.username if self.creator else None,
             'bookings_count': len(self.bookings),
-            'payments_count': len(self.payments)
+            'payments_count': len(self.payments),
+            'available_slots': self.calculate_available_slots()
         }

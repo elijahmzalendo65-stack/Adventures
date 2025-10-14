@@ -1,35 +1,38 @@
+
+
 from ..extensions import db
 from datetime import datetime
 
 class Payment(db.Model):
     __tablename__ = 'payments'
 
+    
     id = db.Column(db.Integer, primary_key=True)
+
+    
     mpesa_receipt_number = db.Column(db.String(50), nullable=True)
     phone_number = db.Column(db.String(20), nullable=False)
     amount = db.Column(db.Float, nullable=False, default=0.0)
-    transaction_date = db.Column(db.DateTime)
+    transaction_date = db.Column(db.DateTime, default=datetime.utcnow)
     status = db.Column(db.String(50), default='pending')  # pending, completed, failed
     checkout_request_id = db.Column(db.String(100), nullable=True)
     merchant_request_id = db.Column(db.String(100), nullable=True)
     result_code = db.Column(db.Integer, nullable=True)
     result_desc = db.Column(db.String(255), nullable=True)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     adventure_id = db.Column(db.Integer, db.ForeignKey('adventures.id'), nullable=False)
 
-    # -----------------------------
-    # Relationships
-    # -----------------------------
+   
     user = db.relationship('User', back_populates='payments', lazy=True)
     adventure = db.relationship('Adventure', back_populates='payments', lazy=True)
     booking = db.relationship('Booking', back_populates='payment_rel', uselist=False, lazy=True)
 
-    # -----------------------------
-    # Serialization
-    # -----------------------------
+   
     def to_dict(self) -> dict:
         return {
             'id': self.id,

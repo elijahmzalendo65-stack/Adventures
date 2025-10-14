@@ -10,14 +10,12 @@ from ..utils.helpers import admin_required
 
 admin_bp = Blueprint('admin', __name__)
 
-# -------------------------
-# Dashboard Overview
-# -------------------------
+
 @admin_bp.route('/dashboard', methods=['GET'])
 @admin_required
 def admin_dashboard():
     try:
-        # Total counts
+        
         total_users = User.query.count()
         total_adventures = Adventure.query.count()
         total_bookings = Booking.query.count()
@@ -25,7 +23,7 @@ def admin_dashboard():
             Payment.status == 'completed'
         ).scalar()
 
-        # Recent stats (last 30 days)
+        
         thirty_days_ago = datetime.now() - timedelta(days=30)
         recent_users = User.query.filter(User.created_at >= thirty_days_ago).count()
         recent_bookings = Booking.query.filter(Booking.created_at >= thirty_days_ago).count()
@@ -33,11 +31,11 @@ def admin_dashboard():
             Payment.status == 'completed', Payment.created_at >= thirty_days_ago
         ).scalar()
 
-        # Booking & Payment status distributions
+        
         booking_status = db.session.query(Booking.status, func.count(Booking.id)).group_by(Booking.status).all()
         payment_status = db.session.query(Payment.status, func.count(Payment.id)).group_by(Payment.status).all()
 
-        # Monthly revenue for last 6 months
+        
         six_months_ago = datetime.now() - timedelta(days=180)
         monthly_revenue = db.session.query(
             extract('year', Payment.created_at).label('year'),
@@ -70,9 +68,7 @@ def admin_dashboard():
         return jsonify({'message': 'Failed to fetch dashboard data', 'error': str(e)}), 500
 
 
-# -------------------------
-# Users Management
-# -------------------------
+
 @admin_bp.route('/users', methods=['GET'])
 @admin_required
 def get_all_users():
@@ -110,7 +106,7 @@ def get_user(user_id):
     try:
         user = User.query.get_or_404(user_id)
 
-        # User statistics
+        
         user_stats = {
             'adventures_created': Adventure.query.filter_by(user_id=user_id).count(),
             'bookings_made': Booking.query.filter_by(user_id=user_id).count(),
@@ -151,9 +147,7 @@ def toggle_admin(user_id):
         return jsonify({'message': 'Failed to update admin status', 'error': str(e)}), 500
 
 
-# -------------------------
-# Adventures Management
-# -------------------------
+
 @admin_bp.route('/adventures', methods=['GET'])
 @admin_required
 def get_all_adventures():
@@ -197,9 +191,6 @@ def toggle_adventure_status(adventure_id):
         return jsonify({'message': 'Failed to update adventure status', 'error': str(e)}), 500
 
 
-# -------------------------
-# Bookings & Payments
-# -------------------------
 @admin_bp.route('/bookings', methods=['GET'])
 @admin_required
 def get_all_bookings():

@@ -22,8 +22,8 @@ interface Package {
 }
 
 interface BookingStatus {
-  bookingId: number; // This comes from the backend booking ID
-  adventureId: number; // The package/adventure ID
+  bookingId: number;
+  adventureId: number;
   status: "pending" | "completed";
 }
 
@@ -33,6 +33,7 @@ const Pricing = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [bookingStatuses, setBookingStatuses] = useState<BookingStatus[]>([]);
 
+  // List of packages
   const packages: Package[] = [
     {
       id: 101,
@@ -84,13 +85,14 @@ const Pricing = () => {
     },
   ];
 
+  // Open booking modal
   const handleBookNow = (pkg: Package) => {
     setSelectedAdventureId(pkg.id);
     setSelectedPrice(pkg.price);
     setModalOpen(true);
   };
 
-  // Callback from BookingModal to track booking status
+  // Update booking status after completion or payment
   const handleBookingCompleted = (
     status: "pending" | "completed",
     bookingId?: number
@@ -109,30 +111,37 @@ const Pricing = () => {
     });
   };
 
-  // Fetch user's bookings to show statuses
-  useEffect(() => {
-    const fetchBookings = async () => {
-      try {
-        const res = await axios.get("http://localhost:5000/api/bookings/", {
-          withCredentials: true,
-        });
-        const userBookings: BookingStatus[] = res.data.bookings.map((b: any) => ({
-          bookingId: b.id,
-          adventureId: b.adventure_id,
-          status: b.status,
-        }));
-        setBookingStatuses(userBookings);
-      } catch (err) {
-        console.error("Failed to fetch user bookings", err);
-      }
-    };
+  // Fetch user bookings
+  const fetchUserBookings = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/api/bookings/", {
+        withCredentials: true,
+      });
+      const userBookings: BookingStatus[] = res.data.bookings.map((b: any) => ({
+        bookingId: b.id,
+        adventureId: b.adventure_id,
+        status: b.status,
+      }));
+      setBookingStatuses(userBookings);
+    } catch (err) {
+      console.error("Failed to fetch user bookings", err);
+    }
+  };
 
-    fetchBookings();
+  useEffect(() => {
+    fetchUserBookings();
+
+    // Optional: Poll every 5 seconds to reflect real-time payment status
+    const interval = setInterval(fetchUserBookings, 5000);
+    return () => clearInterval(interval);
   }, []);
 
+  // Get latest booking status for a given adventure
   const getBookingStatus = (adventureId: number) => {
-    const booking = bookingStatuses.find((b) => b.adventureId === adventureId);
-    return booking ? booking.status : null;
+    const bookings = bookingStatuses
+      .filter((b) => b.adventureId === adventureId)
+      .sort((a, b) => b.bookingId - a.bookingId); // latest booking first
+    return bookings.length > 0 ? bookings[0].status : null;
   };
 
   return (
@@ -151,6 +160,7 @@ const Pricing = () => {
           <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
             {packages.map((pkg, index) => {
               const status = getBookingStatus(pkg.id);
+
               return (
                 <Card
                   key={pkg.id}
@@ -192,11 +202,13 @@ const Pricing = () => {
                   <CardFooter className="flex flex-col gap-2">
                     {status ? (
                       <span
-                        className={`font-semibold text-center ${
+                        className={`font-semibold text-center transition-colors duration-500 ${
                           status === "completed" ? "text-green-600" : "text-yellow-600"
                         }`}
                       >
-                        {status === "completed" ? "Booking Confirmed ✅" : "Pending Payment ⏳"}
+                        {status === "completed"
+                          ? "Booking Confirmed ✅"
+                          : "Pending Payment ⏳"}
                       </span>
                     ) : (
                       <Button

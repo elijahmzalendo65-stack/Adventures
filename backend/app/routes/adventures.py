@@ -1,5 +1,3 @@
-# app/routes/adventures.py
-
 from flask import Blueprint, request, jsonify, session
 from ..extensions import db
 from ..models.adventure import Adventure
@@ -8,9 +6,7 @@ from ..utils.helpers import login_required, admin_required, validate_required_fi
 
 adventures_bp = Blueprint('adventures', __name__, url_prefix='/api/adventures')
 
-# -----------------------------
-# GET all active adventures
-# -----------------------------
+
 @adventures_bp.route('/', methods=['GET'])
 def get_adventures():
     """Fetch all active adventures."""
@@ -20,9 +16,7 @@ def get_adventures():
     except Exception as e:
         return jsonify({'message': 'Failed to fetch adventures', 'error': str(e)}), 500
 
-# -----------------------------
-# GET all adventures (admin view)
-# -----------------------------
+
 @adventures_bp.route('/admin/all', methods=['GET'])
 @admin_required
 def get_all_adventures_admin():
@@ -32,7 +26,7 @@ def get_all_adventures_admin():
         result = []
         for adv in adventures:
             adv_data = adv.to_dict()
-            # Include creator info
+            
             creator = User.query.get(adv.user_id)
             adv_data['creator'] = {
                 'id': creator.id,
@@ -46,9 +40,7 @@ def get_all_adventures_admin():
     except Exception as e:
         return jsonify({'message': 'Failed to fetch adventures for admin', 'error': str(e)}), 500
 
-# -----------------------------
-# GET a single adventure
-# -----------------------------
+
 @adventures_bp.route('/<int:adventure_id>', methods=['GET'])
 def get_adventure(adventure_id: int):
     try:
@@ -57,9 +49,6 @@ def get_adventure(adventure_id: int):
     except Exception as e:
         return jsonify({'message': 'Failed to fetch adventure', 'error': str(e)}), 500
 
-# -----------------------------
-# POST create a new adventure
-# -----------------------------
 @adventures_bp.route('/', methods=['POST'])
 @login_required
 def create_adventure():
@@ -67,7 +56,7 @@ def create_adventure():
         user_id = session.get('user_id')
         data = request.get_json()
 
-        # Validate required fields
+       
         required_fields = ['title', 'description', 'location', 'price']
         is_valid, error_message = validate_required_fields(data, required_fields)
         if not is_valid:
@@ -97,9 +86,6 @@ def create_adventure():
         db.session.rollback()
         return jsonify({'message': 'Failed to create adventure', 'error': str(e)}), 500
 
-# -----------------------------
-# PUT update an adventure
-# -----------------------------
 @adventures_bp.route('/<int:adventure_id>', methods=['PUT'])
 @login_required
 def update_adventure(adventure_id: int):
@@ -127,9 +113,6 @@ def update_adventure(adventure_id: int):
         db.session.rollback()
         return jsonify({'message': 'Failed to update adventure', 'error': str(e)}), 500
 
-# -----------------------------
-# DELETE (soft delete) adventure
-# -----------------------------
 @adventures_bp.route('/<int:adventure_id>', methods=['DELETE'])
 @login_required
 def delete_adventure(adventure_id: int):
@@ -149,9 +132,7 @@ def delete_adventure(adventure_id: int):
         db.session.rollback()
         return jsonify({'message': 'Failed to delete adventure', 'error': str(e)}), 500
 
-# -----------------------------
-# GET adventures created by the current user
-# -----------------------------
+
 @adventures_bp.route('/my-adventures', methods=['GET'])
 @login_required
 def get_my_adventures():

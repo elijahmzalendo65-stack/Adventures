@@ -6,7 +6,7 @@ const Footer = () => {
       <div className="container mx-auto">
         <div className="grid md:grid-cols-3 gap-8 mb-8">
           <div>
-            <h3 className="text-xl font-bold mb-4">Coffee & Adventures Tours</h3>
+            <h3 className="text-xl font-bold mb-4">Mulima Adventures</h3>
             <p className="text-primary-foreground/80 mb-4">
               Experience authentic agri-tourism and thrilling adventures in Central Kenya. Every day and weekend trips available.
             </p>
@@ -17,11 +17,11 @@ const Footer = () => {
             <div className="space-y-3 text-primary-foreground/80">
               <div className="flex items-center gap-2">
                 <Phone className="w-4 h-4" />
-                <span>+254 712 345 678</span>
+                <span>+254 116 032 504</span>
               </div>
               <div className="flex items-center gap-2">
                 <Mail className="w-4 h-4" />
-                <span>info@coffeeadventures.co.ke</span>
+                <span>info@murimaadventures.co.ke</span>
               </div>
               <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4" />
@@ -50,7 +50,7 @@ const Footer = () => {
         </div>
         
         <div className="border-t border-primary-foreground/20 pt-8 text-center text-primary-foreground/70">
-          <p>&copy; {new Date().getFullYear()} Coffee & Adventures Tours. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} Mulima Adventures. All rights reserved.</p>
         </div>
       </div>
     </footer>
