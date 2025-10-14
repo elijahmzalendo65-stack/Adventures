@@ -17,9 +17,7 @@ class User(db.Model):
     phone_number = db.Column(db.String(20), nullable=True)
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(
-        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # -----------------------------
     # Relationships
@@ -28,34 +26,34 @@ class User(db.Model):
         "Adventure",
         back_populates="creator",
         lazy=True,
-        cascade="all, delete-orphan",
+        cascade="all, delete-orphan"
     )
 
     bookings = db.relationship(
         "Booking",
         back_populates="user",
         lazy=True,
-        cascade="all, delete-orphan",
+        cascade="all, delete-orphan"
     )
 
     payments = db.relationship(
         "Payment",
         back_populates="user",
         lazy=True,
-        cascade="all, delete-orphan",
+        cascade="all, delete-orphan"
     )
 
     # -----------------------------
     # Password Methods
     # -----------------------------
     def set_password(self, password: str):
-        """Hashes and sets the user's password securely."""
+        """Hash and set the user's password."""
         if not password:
             raise ValueError("Password cannot be empty.")
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password: str) -> bool:
-        """Verifies the user's password."""
+        """Verify the user's password."""
         return check_password_hash(self.password_hash, password)
 
     # -----------------------------
@@ -96,7 +94,7 @@ class User(db.Model):
                 db.or_(
                     cls.username.ilike(f"%{search}%"),
                     cls.email.ilike(f"%{search}%"),
-                    cls.phone_number.ilike(f"%{search}%"),
+                    cls.phone_number.ilike(f"%{search}%")
                 )
             )
         return query.order_by(cls.created_at.desc()).paginate(

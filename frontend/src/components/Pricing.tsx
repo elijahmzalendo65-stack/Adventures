@@ -111,27 +111,41 @@ const Pricing = () => {
     });
   };
 
-  // Fetch user bookings
+  // Fetch user bookings with token
   const fetchUserBookings = async () => {
     try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        console.warn("No auth token found. User might not be logged in.");
+        return;
+      }
+
       const res = await axios.get("http://localhost:5000/api/bookings/", {
-        withCredentials: true,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
+
       const userBookings: BookingStatus[] = res.data.bookings.map((b: any) => ({
         bookingId: b.id,
         adventureId: b.adventure_id,
         status: b.status,
       }));
+
       setBookingStatuses(userBookings);
-    } catch (err) {
-      console.error("Failed to fetch user bookings", err);
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        console.error("Unauthorized: Please log in to view bookings.");
+      } else {
+        console.error("Failed to fetch user bookings", err);
+      }
     }
   };
 
   useEffect(() => {
     fetchUserBookings();
 
-    // Optional: Poll every 5 seconds to reflect real-time payment status
+    // Poll every 5 seconds to reflect real-time payment status
     const interval = setInterval(fetchUserBookings, 5000);
     return () => clearInterval(interval);
   }, []);

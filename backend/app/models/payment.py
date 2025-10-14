@@ -1,15 +1,17 @@
-
-
 from ..extensions import db
 from datetime import datetime
 
 class Payment(db.Model):
     __tablename__ = 'payments'
 
-    
+    # -----------------------------
+    # Primary Key
+    # -----------------------------
     id = db.Column(db.Integer, primary_key=True)
 
-    
+    # -----------------------------
+    # Payment Details
+    # -----------------------------
     mpesa_receipt_number = db.Column(db.String(50), nullable=True)
     phone_number = db.Column(db.String(20), nullable=False)
     amount = db.Column(db.Float, nullable=False, default=0.0)
@@ -20,20 +22,30 @@ class Payment(db.Model):
     result_code = db.Column(db.Integer, nullable=True)
     result_desc = db.Column(db.String(255), nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    
+    # -----------------------------
+    # Foreign Keys
+    # -----------------------------
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     adventure_id = db.Column(db.Integer, db.ForeignKey('adventures.id'), nullable=False)
 
-   
+    # -----------------------------
+    # Relationships
+    # -----------------------------
     user = db.relationship('User', back_populates='payments', lazy=True)
     adventure = db.relationship('Adventure', back_populates='payments', lazy=True)
     booking = db.relationship('Booking', back_populates='payment_rel', uselist=False, lazy=True)
 
-   
+    # -----------------------------
+    # Timestamps
+    # -----------------------------
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # -----------------------------
+    # Methods
+    # -----------------------------
     def to_dict(self) -> dict:
+        """Return a dictionary representation including related objects."""
         return {
             'id': self.id,
             'mpesa_receipt_number': self.mpesa_receipt_number,
@@ -45,8 +57,8 @@ class Payment(db.Model):
             'merchant_request_id': self.merchant_request_id,
             'result_code': self.result_code,
             'result_desc': self.result_desc,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat(),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'user_id': self.user_id,
             'user_username': self.user.username if self.user else None,
             'adventure_id': self.adventure_id,

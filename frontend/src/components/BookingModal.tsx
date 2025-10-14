@@ -39,8 +39,8 @@ const BookingModal = ({
   adventurePrice,
   onBookingCompleted,
 }: BookingModalProps) => {
-  const [step, setStep] = useState(1);
-  const [date, setDate] = useState<Date>();
+  const [step, setStep] = useState<1 | 2>(1);
+  const [date, setDate] = useState<Date | undefined>();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -53,8 +53,14 @@ const BookingModal = ({
 
   const totalPrice = adventurePrice * parseInt(formData.guests);
 
-  const handleInputChange = (field: string, value: string) => {
+  const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // Get auth headers from localStorage
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem("token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
   // -----------------------------
@@ -70,16 +76,24 @@ const BookingModal = ({
       return;
     }
 
+    setProcessing(true);
+
     try {
+      // Convert date to ISO string with UTC timezone to avoid naive datetime errors
+      const adventureDateISO = new Date(date).toISOString();
+
       const res = await axios.post(
         "http://localhost:5000/api/bookings/",
         {
           adventure_id: adventureId,
-          adventure_date: date.toISOString(),
+          adventure_date: adventureDateISO,
           number_of_people: parseInt(formData.guests),
+          customer_name: formData.name,
+          customer_email: formData.email,
+          customer_phone: formData.phone,
           special_requests: "",
         },
-        { withCredentials: true }
+        { withCredentials: true, headers: getAuthHeaders() }
       );
 
       const createdBooking = res.data.booking;
@@ -90,16 +104,21 @@ const BookingModal = ({
         description: "Your booking has been created. Proceed to payment.",
       });
 
-      onBookingCompleted && onBookingCompleted("pending", createdBooking.id);
-
-      setStep(2); // Move to payment
+      onBookingCompleted?.("pending", createdBooking.id);
+      setStep(2);
     } catch (err: any) {
-      console.error(err);
+      console.error("Booking creation error:", err);
+      const msg =
+        err?.response?.status === 401
+          ? "Unauthorized. Please log in again."
+          : err?.response?.data?.message || "Failed to create booking. Please try again.";
       toast({
         title: "Booking Failed",
-        description: err?.response?.data?.message || "Something went wrong.",
+        description: msg,
         variant: "destructive",
       });
+    } finally {
+      setProcessing(false);
     }
   };
 
@@ -130,46 +149,47 @@ const BookingModal = ({
     try {
       await axios.post(
         "http://localhost:5000/api/bookings/initiate-payment",
-        {
-          booking_id: bookingId,
-          phone_number: mpesaPhone,
-        },
-        { withCredentials: true }
+        { booking_id: bookingId, phone_number: mpesaPhone },
+        { withCredentials: true, headers: getAuthHeaders() }
       );
 
       toast({
         title: "Payment Initiated",
-        description:
-          "Check your phone for the M-Pesa prompt to complete payment",
+        description: "Check your phone for the M-Pesa prompt to complete payment.",
       });
 
-      // Simulate payment confirmation (replace with real webhook)
+      // Mock confirmation after 3 seconds
       setTimeout(() => {
         toast({
           title: "Booking Confirmed!",
           description: "Payment completed successfully.",
         });
-
-        onBookingCompleted && onBookingCompleted("completed", bookingId);
-
-        // Reset modal state
-        onOpenChange(false);
-        setStep(1);
-        setFormData({ name: "", email: "", phone: "", guests: "1" });
-        setMpesaPhone("");
-        setDate(undefined);
-        setBookingId(null);
+        onBookingCompleted?.("completed", bookingId);
+        resetModal();
       }, 3000);
     } catch (err: any) {
-      console.error(err);
+      console.error("Payment initiation error:", err);
+      const msg =
+        err?.response?.status === 401
+          ? "Unauthorized. Please log in again."
+          : err?.response?.data?.message || "Payment could not be completed. Please try again.";
       toast({
         title: "Payment Failed",
-        description: err?.response?.data?.message || "Payment could not be completed.",
+        description: msg,
         variant: "destructive",
       });
     } finally {
       setProcessing(false);
     }
+  };
+
+  const resetModal = () => {
+    onOpenChange(false);
+    setStep(1);
+    setFormData({ name: "", email: "", phone: "", guests: "1" });
+    setMpesaPhone("");
+    setDate(undefined);
+    setBookingId(null);
   };
 
   return (
@@ -197,7 +217,6 @@ const BookingModal = ({
                 onChange={(e) => handleInputChange("name", e.target.value)}
               />
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="email">Email *</Label>
               <Input
@@ -208,7 +227,6 @@ const BookingModal = ({
                 onChange={(e) => handleInputChange("email", e.target.value)}
               />
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="phone">Phone Number *</Label>
               <Input
@@ -218,7 +236,6 @@ const BookingModal = ({
                 onChange={(e) => handleInputChange("phone", e.target.value)}
               />
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="guests">Number of Guests *</Label>
               <Select
@@ -237,7 +254,6 @@ const BookingModal = ({
                 </SelectContent>
               </Select>
             </div>
-
             <div className="space-y-2">
               <Label>Select Date *</Label>
               <Popover>
@@ -259,21 +275,23 @@ const BookingModal = ({
                     selected={date}
                     onSelect={setDate}
                     initialFocus
-                    disabled={(date) => date < new Date()}
+                    disabled={(d) => d < new Date()}
                   />
                 </PopoverContent>
               </Popover>
             </div>
-
             <div className="pt-4 border-t">
               <div className="flex justify-between items-center text-lg font-semibold">
                 <span>Total Amount:</span>
                 <span className="text-primary">Ksh {totalPrice.toLocaleString()}</span>
               </div>
             </div>
-
-            <Button className="w-full" onClick={handleBookingSubmit}>
-              Proceed to Payment
+            <Button
+              className="w-full"
+              onClick={handleBookingSubmit}
+              disabled={processing}
+            >
+              {processing ? "Processing..." : "Proceed to Payment"}
             </Button>
           </div>
         ) : (
@@ -292,9 +310,8 @@ const BookingModal = ({
                 <span className="font-semibold">Ksh {totalPrice.toLocaleString()}</span>
               </div>
             </div>
-
             <div className="space-y-2">
-              <Label>M-Pesa Phone Number</Label>
+              <Label>M-Pesa Phone Number *</Label>
               <div className="relative">
                 <Input
                   placeholder="2547XXXXXXXX"
@@ -305,11 +322,10 @@ const BookingModal = ({
                 <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               </div>
             </div>
-
             <Button
               className="w-full"
               onClick={handleMpesaPayment}
-              disabled={processing}
+              disabled={processing || !bookingId}
             >
               {processing ? "Processing..." : "Pay with M-Pesa"}
             </Button>

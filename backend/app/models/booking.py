@@ -1,4 +1,4 @@
-
+# app/models/booking.py
 
 from ..extensions import db
 from datetime import datetime
@@ -7,59 +7,75 @@ import secrets, string
 class Booking(db.Model):
     __tablename__ = 'bookings'
 
-    
+    # -----------------------------
+    # Primary Key
+    # -----------------------------
     id = db.Column(db.Integer, primary_key=True)
 
-
-    
+    # -----------------------------
+    # Foreign Keys
+    # -----------------------------
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     adventure_id = db.Column(db.Integer, db.ForeignKey('adventures.id'), nullable=False)
     payment_id = db.Column(db.Integer, db.ForeignKey('payments.id'), nullable=True)
 
-    
+    # -----------------------------
+    # Booking Details
+    # -----------------------------
     booking_date = db.Column(db.DateTime, default=datetime.utcnow)
     adventure_date = db.Column(db.DateTime, nullable=False)
     number_of_people = db.Column(db.Integer, nullable=False, default=1)
     total_amount = db.Column(db.Float, nullable=False, default=0.0)
-    special_requests = db.Column(db.Text)
+    special_requests = db.Column(db.Text, default="")
     status = db.Column(db.String(50), default='pending')  # pending, confirmed, cancelled, completed
     booking_reference = db.Column(db.String(100), unique=True, nullable=False)
 
-    
     customer_name = db.Column(db.String(100), nullable=False)
     customer_email = db.Column(db.String(150), nullable=False)
     customer_phone = db.Column(db.String(20), nullable=False)
 
-    
+    # -----------------------------
+    # Timestamps
+    # -----------------------------
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    
+    # -----------------------------
+    # Relationships
+    # -----------------------------
     user = db.relationship('User', back_populates='bookings', lazy=True)
     adventure = db.relationship('Adventure', back_populates='bookings', lazy=True)
     payment_rel = db.relationship('Payment', back_populates='booking', lazy=True, uselist=False)
 
-    
+    # -----------------------------
+    # Initialization
+    # -----------------------------
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if not self.booking_reference:
-            self.booking_reference = self.generate_booking_reference()
-        if not self.total_amount:
-            self.calculate_total_amount()
+        # Ensure booking_reference exists
+        if 'booking_reference' not in kwargs or not kwargs['booking_reference']:
+            kwargs['booking_reference'] = self.generate_booking_reference()
 
-   
-    def generate_booking_reference(self) -> str:
+        # Set total_amount if provided directly, otherwise leave as 0
+        if 'total_amount' not in kwargs or not kwargs['total_amount']:
+            kwargs['total_amount'] = 0.0
+
+        super().__init__(**kwargs)
+
+    # -----------------------------
+    # Methods
+    # -----------------------------
+    @staticmethod
+    def generate_booking_reference() -> str:
         """Generate a unique booking reference."""
         characters = string.ascii_uppercase + string.digits
         return 'BK' + ''.join(secrets.choice(characters) for _ in range(8))
 
     def calculate_total_amount(self) -> float:
         """Calculate total amount based on adventure price and number of people."""
-        if self.adventure:
-            self.total_amount = self.adventure.price * self.number_of_people
+        if self.adventure and self.number_of_people:
+            self.total_amount = (self.adventure.price or 0) * self.number_of_people
         return self.total_amount
 
-    
     def to_dict(self) -> dict:
         """Return a dictionary representation including related objects."""
         return {

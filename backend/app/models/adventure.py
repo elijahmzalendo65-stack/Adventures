@@ -1,10 +1,14 @@
+# app/models/adventure.py
+
 from ..extensions import db
 from datetime import datetime
 
 class Adventure(db.Model):
     __tablename__ = 'adventures'
 
-    
+    # -----------------------------
+    # Columns
+    # -----------------------------
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
@@ -18,10 +22,14 @@ class Adventure(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    
+    # -----------------------------
+    # Foreign Keys
+    # -----------------------------
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
-   
+    # -----------------------------
+    # Relationships
+    # -----------------------------
     creator = db.relationship('User', back_populates='adventures', lazy=True)
     bookings = db.relationship(
         'Booking',
@@ -36,13 +44,15 @@ class Adventure(db.Model):
         cascade='all, delete-orphan'
     )
 
-    
+    # -----------------------------
+    # Methods
+    # -----------------------------
     def calculate_available_slots(self, date: datetime = None) -> int:
         """
         Calculate available slots for a specific date.
         Defaults to current date if not provided.
         """
-        from ..models.booking import Booking  
+        from ..models.booking import Booking
         if not date:
             date = datetime.utcnow()
         confirmed_count = Booking.query.filter(
@@ -52,8 +62,10 @@ class Adventure(db.Model):
         ).count()
         return max(self.max_capacity - confirmed_count, 0)
 
-    
     def to_dict(self) -> dict:
+        """
+        Return a dictionary representation including booking counts, payment counts, and available slots.
+        """
         return {
             'id': self.id,
             'title': self.title,
@@ -65,8 +77,8 @@ class Adventure(db.Model):
             'image_url': self.image_url,
             'max_capacity': self.max_capacity,
             'is_active': self.is_active,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat(),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'user_id': self.user_id,
             'creator_username': self.creator.username if self.creator else None,
             'bookings_count': len(self.bookings),
