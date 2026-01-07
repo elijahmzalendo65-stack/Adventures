@@ -10,6 +10,7 @@ from .routes.mpesa import mpesa_bp
 from .routes.booking import booking_bp
 from .routes.admin import admin_bp
 
+
 def create_app(config_class=Config):
     """
     Flask application factory.
@@ -28,27 +29,28 @@ def create_app(config_class=Config):
     # -----------------------------
     # Enable CORS for frontend
     # -----------------------------
+    # Allow frontend running on localhost:8080 to access API
     CORS(
         app,
         supports_credentials=True,
-        resources={r"/api/*": {"origins": ["http://localhost:8081", "*"]}},
+        resources={r"/api/*": {"origins": ["http://localhost:8080"]}},
     )
 
     # -----------------------------
     # Register Blueprints
     # -----------------------------
-    app.register_blueprint(auth_bp, url_prefix="/api/auth")
-    app.register_blueprint(adventures_bp, url_prefix="/api/adventures")
-    app.register_blueprint(mpesa_bp, url_prefix="/api/mpesa")
-    app.register_blueprint(booking_bp, url_prefix="/api/bookings")
-    app.register_blueprint(admin_bp, url_prefix="/api/admin")
+    app.register_blueprint(auth_bp)  # /api/auth
+    app.register_blueprint(adventures_bp)  # /api/adventures
+    app.register_blueprint(mpesa_bp)  # /api/mpesa
+    app.register_blueprint(booking_bp)  # /api/bookings
+    app.register_blueprint(admin_bp)  # /api/admin
 
     # -----------------------------
     # Root route for testing
     # -----------------------------
     @app.route("/", methods=["GET"])
     def index():
-        return jsonify({"message": "Welcome to Coffee & Adventures API"})
+        return jsonify({"message": "Welcome to Adventures API"})
 
     # -----------------------------
     # Error handlers

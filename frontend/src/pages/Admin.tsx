@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Users, Calendar, DollarSign, Search } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, Users, Calendar, DollarSign, Search, LogOut } from "lucide-react";
 import axios from "axios";
 
 import { Button } from "@/components/ui/button";
@@ -34,62 +34,76 @@ interface DashboardStats {
 }
 
 const Admin = () => {
+  const navigate = useNavigate();
+
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const API_BASE = "http://localhost:5000/api/admin";
 
   // ----------------------
   // Fetch Dashboard Stats
   // ----------------------
-  useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        const res = await axios.get("http://localhost:5000/api/admin/dashboard", {
-          withCredentials: true,
-        });
-        setDashboardStats(res.data.dashboard);
-      } catch (err) {
-        console.error("Failed to fetch dashboard stats", err);
+  const fetchDashboard = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/dashboard`, { withCredentials: true });
+      setDashboardStats(res.data.dashboard);
+    } catch (err) {
+      console.error("Failed to fetch dashboard stats", err);
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        navigate("/login"); // redirect if not authenticated
       }
-    };
-    fetchDashboard();
-  }, []);
+    }
+  };
 
   // ----------------------
   // Fetch Users
   // ----------------------
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const res = await axios.get("http://localhost:5000/api/admin/users", {
-          withCredentials: true,
-        });
-        setUsers(res.data.users);
-      } catch (err) {
-        console.error("Failed to fetch users", err);
-      }
-    };
-    fetchUsers();
-  }, []);
+  const fetchUsers = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/users`, { withCredentials: true });
+      setUsers(res.data.users);
+    } catch (err) {
+      console.error("Failed to fetch users", err);
+    }
+  };
 
   // ----------------------
   // Fetch Bookings
   // ----------------------
+  const fetchBookings = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/bookings`, { withCredentials: true });
+      setBookings(res.data.bookings);
+    } catch (err) {
+      console.error("Failed to fetch bookings", err);
+    }
+  };
+
+  // ----------------------
+  // Fetch all data on load
+  // ----------------------
   useEffect(() => {
-    const fetchBookings = async () => {
-      try {
-        const res = await axios.get("http://localhost:5000/api/admin/bookings", {
-          withCredentials: true,
-        });
-        setBookings(res.data.bookings);
-      } catch (err) {
-        console.error("Failed to fetch bookings", err);
-      }
-    };
-    fetchBookings();
+    setLoading(true);
+    Promise.all([fetchDashboard(), fetchUsers(), fetchBookings()])
+      .finally(() => setLoading(false));
   }, []);
+
+  // ----------------------
+  // Logout
+  // ----------------------
+  const handleLogout = async () => {
+    try {
+      await axios.post("http://localhost:5000/api/auth/logout", {}, { withCredentials: true });
+      navigate("/login");
+    } catch (err) {
+      console.error("Failed to logout", err);
+    }
+  };
 
   // ----------------------
   // Filtered Data
@@ -122,6 +136,8 @@ const Admin = () => {
     }
   };
 
+  if (loading) return <div className="text-center mt-20">Loading...</div>;
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -136,6 +152,10 @@ const Admin = () => {
             </Link>
             <h1 className="text-2xl font-bold text-primary">Admin Dashboard</h1>
           </div>
+          <Button variant="outline" onClick={handleLogout}>
+            <LogOut className="mr-2 h-4 w-4" />
+            Logout
+          </Button>
         </div>
       </header>
 

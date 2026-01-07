@@ -1,56 +1,66 @@
 # run.py
 
-import os
 from dotenv import load_dotenv
 from app import create_app
 from app.extensions import db
 from app.models.user import User
 
-# Load environment variables
 load_dotenv()
 
-# Create the Flask app
 app = create_app()
 
 
 def create_admin_user():
-    """Create a default admin user if none exists."""
+    """
+    Create a default admin user if none exists.
+    Admin credentials:
+    email: admin456@gmail.com
+    password: admin456
+    """
     try:
         with app.app_context():
-            admin_exists = User.query.filter_by(is_admin=True).first()
-            if not admin_exists:
-                admin_user = User(
-                    username='admin',
-                    email='admin@adventures.com',
-                    phone_number='254700000000',
+            admin = User.query.filter_by(email="admin456@gmail.com").first()
+
+            if not admin:
+                admin = User(
+                    username="admin456",
+                    email="admin456@gmail.com",
+                    phone_number="254700000456",
                     is_admin=True
                 )
-                admin_user.set_password('admin123')
-                db.session.add(admin_user)
+                admin.set_password("admin456")
+                db.session.add(admin)
                 db.session.commit()
-                print("✅ Admin user created: username='admin', password='admin123'")
+
+                print("✅ Admin user created:")
+                print("   Email: admin456@gmail.com")
+                print("   Password: admin456")
             else:
-                print("ℹ️ Admin user already exists.")
+                # Ensure admin flag is always true
+                if not admin.is_admin:
+                    admin.is_admin = True
+                    db.session.commit()
+                    print("🔁 Existing user promoted to admin")
+                else:
+                    print("ℹ️ Admin user already exists")
+
     except Exception as e:
         db.session.rollback()
         print(f"❌ Failed to create admin user: {e}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     with app.app_context():
-        # Create all tables
         try:
             db.create_all()
-            print("✅ All tables created successfully.")
+            print("✅ Database tables ensured")
         except Exception as e:
-            print(f"❌ Failed to create tables: {e}")
+            print(f"❌ Database error: {e}")
 
-        # Ensure default admin user exists
         create_admin_user()
 
-    # Run Flask app
     app.run(
-        debug=app.config.get('DEBUG', True),
-        host=app.config.get('HOST', '127.0.0.1'),
-        port=int(app.config.get('PORT', 5000))
+        debug=app.config.get("DEBUG", True),
+        host="127.0.0.1",
+        port=5000
     )

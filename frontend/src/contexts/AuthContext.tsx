@@ -11,10 +11,20 @@ export interface User {
 }
 
 export interface AdminStats {
-  totalUsers: number;
-  totalBookings: number;
-  pendingBookings: number;
-  completedBookings: number;
+  dashboard: {
+    total_users: number;
+    total_adventures: number;
+    total_bookings: number;
+    total_revenue: number;
+    recent_users: number;
+    recent_bookings: number;
+    recent_revenue: number;
+  };
+  analytics: {
+    booking_status: { status: string; count: number }[];
+    payment_status: { status: string; count: number }[];
+    monthly_revenue: { year: number; month: number; revenue: number }[];
+  };
 }
 
 interface AuthContextType {
@@ -26,6 +36,8 @@ interface AuthContextType {
   checkAuth: () => Promise<void>;
   refreshUser: () => Promise<void>;
   fetchAdminStats: () => Promise<AdminStats | null>;
+  fetchAdminUsers: () => Promise<User[]>;
+  fetchAdminBookings: () => Promise<any[]>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -33,11 +45,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
 
+  // ----------------------
+  // Initialize auth on mount
+  // ----------------------
   useEffect(() => {
     checkAuth();
   }, []);
 
-  // Login user with username or email
+  // ----------------------
+  // LOGIN
+  // ----------------------
   const login = async (identifier: string, password: string): Promise<boolean> => {
     try {
       const res = await fetch("http://localhost:5000/api/auth/login", {
@@ -48,7 +65,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
 
       const data = await res.json();
+
       if (res.ok && data.user) {
+        // Directly update user state here
         setUser(data.user);
         return true;
       }
@@ -61,7 +80,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Signup new user
+  // ----------------------
+  // SIGNUP
+  // ----------------------
   const signup = async (username: string, email: string, password: string): Promise<boolean> => {
     try {
       const res = await fetch("http://localhost:5000/api/auth/register", {
@@ -72,6 +93,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
 
       const data = await res.json();
+
       if (res.ok && data.user) {
         setUser(data.user);
         return true;
@@ -85,7 +107,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Logout user
+  // ----------------------
+  // LOGOUT
+  // ----------------------
   const logout = async (): Promise<void> => {
     try {
       const res = await fetch("http://localhost:5000/api/auth/logout", {
@@ -99,7 +123,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Check if user is already authenticated
+  // ----------------------
+  // CHECK AUTH
+  // ----------------------
   const checkAuth = async (): Promise<void> => {
     try {
       const res = await fetch("http://localhost:5000/api/auth/check-auth", {
@@ -108,6 +134,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
 
       const data = await res.json();
+
       if (res.ok && data.authenticated && data.user) {
         setUser(data.user);
       } else {
@@ -119,36 +146,83 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Refresh user data (useful after booking or payment)
+  // ----------------------
+  // REFRESH USER
+  // ----------------------
   const refreshUser = async (): Promise<void> => {
     try {
       const res = await fetch("http://localhost:5000/api/auth/me", {
         method: "GET",
         credentials: "include",
       });
+
       const data = await res.json();
-      if (res.ok && data.user) {
-        setUser(data.user);
-      }
+      if (res.ok && data.user) setUser(data.user);
     } catch (err) {
       console.error("Failed to refresh user data:", err);
     }
   };
 
-  // Fetch admin dashboard stats
+  // ----------------------
+  // FETCH ADMIN DASHBOARD STATS
+  // ----------------------
   const fetchAdminStats = async (): Promise<AdminStats | null> => {
     if (!user?.is_admin) return null;
+
     try {
-      const res = await fetch("http://localhost:5000/api/admin/stats", {
+      const res = await fetch("http://localhost:5000/api/admin/dashboard", {
         method: "GET",
         credentials: "include",
       });
+
       const data = await res.json();
       if (res.ok) return data as AdminStats;
       return null;
     } catch (err) {
       console.error("Failed to fetch admin stats:", err);
       return null;
+    }
+  };
+
+  // ----------------------
+  // FETCH ALL USERS (ADMIN)
+  // ----------------------
+  const fetchAdminUsers = async (): Promise<User[]> => {
+    if (!user?.is_admin) return [];
+
+    try {
+      const res = await fetch("http://localhost:5000/api/admin/users", {
+        method: "GET",
+        credentials: "include",
+      });
+
+      const data = await res.json();
+      if (res.ok) return data.users;
+      return [];
+    } catch (err) {
+      console.error("Failed to fetch admin users:", err);
+      return [];
+    }
+  };
+
+  // ----------------------
+  // FETCH ALL BOOKINGS (ADMIN)
+  // ----------------------
+  const fetchAdminBookings = async (): Promise<any[]> => {
+    if (!user?.is_admin) return [];
+
+    try {
+      const res = await fetch("http://localhost:5000/api/admin/bookings", {
+        method: "GET",
+        credentials: "include",
+      });
+
+      const data = await res.json();
+      if (res.ok) return data.bookings;
+      return [];
+    } catch (err) {
+      console.error("Failed to fetch admin bookings:", err);
+      return [];
     }
   };
 
@@ -163,6 +237,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         checkAuth,
         refreshUser,
         fetchAdminStats,
+        fetchAdminUsers,
+        fetchAdminBookings,
       }}
     >
       {children}

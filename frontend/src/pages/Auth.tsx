@@ -20,46 +20,112 @@ const Auth = () => {
   const { user, login, signup } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
+  // Redirect already logged-in users
   useEffect(() => {
-    if (user) navigate("/"); // Redirect if already logged in
+    if (user) {
+      if (user.is_admin) navigate("/admin");
+      else navigate("/");
+    }
   }, [user, navigate]);
 
+  // ----------------------
+  // Handle Login
+  // ----------------------
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
 
     const formData = new FormData(e.currentTarget);
-    const identifier = formData.get("username") as string; // username or email
+    const identifier = (formData.get("username") as string)?.trim();
     const password = formData.get("password") as string;
 
+    if (!identifier || !password) {
+      toast({
+        title: "Login failed",
+        description: "All fields are required",
+        variant: "destructive",
+      });
+      setIsLoading(false);
+      return;
+    }
+
+    // login() now returns a boolean, so we fetch the user separately
     const success = await login(identifier, password);
 
     if (success) {
-      toast({ title: "Login successful!", description: `Welcome back, ${identifier}` });
-      navigate("/");
+      // Refresh the user from context to get updated info immediately
+      const loggedInUser = await (async () => {
+        // Fetch the current user directly from /auth/me
+        try {
+          const res = await fetch("http://localhost:5000/api/auth/me", {
+            method: "GET",
+            credentials: "include",
+          });
+          const data = await res.json();
+          if (res.ok && data.user) return data.user;
+        } catch (err) {
+          console.error("Failed to get logged-in user:", err);
+        }
+        return null;
+      })();
+
+      if (loggedInUser?.is_admin) {
+        toast({
+          title: "Login successful!",
+          description: "Welcome to the admin dashboard",
+        });
+        navigate("/admin");
+      } else {
+        toast({
+          title: "Login successful!",
+          description: `Welcome back, ${identifier}`,
+        });
+        navigate("/");
+      }
     } else {
-      toast({ title: "Login failed", description: "Invalid credentials", variant: "destructive" });
+      toast({
+        title: "Login failed",
+        description: "Invalid credentials",
+        variant: "destructive",
+      });
     }
 
     setIsLoading(false);
   };
 
+  // ----------------------
+  // Handle Signup
+  // ----------------------
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
 
     const formData = new FormData(e.currentTarget);
-    const username = formData.get("username") as string;
-    const email = formData.get("email") as string;
-    const password = formData.get("password") as string;
+    const username = (formData.get("username") as string)?.trim();
+    const email = (formData.get("email") as string)?.trim();
+    const password = (formData.get("password") as string);
+
+    if (!username || !email || !password) {
+      toast({
+        title: "Signup failed",
+        description: "All fields are required",
+        variant: "destructive",
+      });
+      setIsLoading(false);
+      return;
+    }
 
     const success = await signup(username, email, password);
 
     if (success) {
       toast({ title: "Account created!", description: `Welcome, ${username}` });
-      navigate("/");
+      navigate("/"); // redirect new user to homepage
     } else {
-      toast({ title: "Signup failed", description: "Username or email already exists", variant: "destructive" });
+      toast({
+        title: "Signup failed",
+        description: "Username or email already exists",
+        variant: "destructive",
+      });
     }
 
     setIsLoading(false);
