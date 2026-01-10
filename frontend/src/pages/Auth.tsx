@@ -23,8 +23,7 @@ const Auth = () => {
   // Redirect already logged-in users
   useEffect(() => {
     if (user) {
-      if (user.is_admin) navigate("/admin");
-      else navigate("/");
+      navigate(user.is_admin ? "/admin" : "/");
     }
   }, [user, navigate]);
 
@@ -49,14 +48,43 @@ const Auth = () => {
       return;
     }
 
+    // Perform login
     const success = await login(identifier, password);
 
     if (success) {
-      toast({
-        title: "Login successful!",
-        description: `Welcome back, ${identifier}`,
-      });
-      navigate(user?.is_admin ? "/admin" : "/");
+      // Get fresh user data immediately from backend
+      try {
+        const res = await fetch("http://localhost:5000/api/auth/me", {
+          method: "GET",
+          credentials: "include",
+        });
+        const data = await res.json();
+
+        if (res.ok && data.user) {
+          const loggedInUser = data.user;
+
+          toast({
+            title: "Login successful!",
+            description: `Welcome back, ${loggedInUser.username}`,
+          });
+
+          // Redirect based on admin flag
+          navigate(loggedInUser.is_admin ? "/admin" : "/");
+        } else {
+          toast({
+            title: "Login failed",
+            description: "Unable to fetch user info",
+            variant: "destructive",
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch logged-in user:", err);
+        toast({
+          title: "Login failed",
+          description: "Something went wrong",
+          variant: "destructive",
+        });
+      }
     } else {
       toast({
         title: "Login failed",
@@ -78,7 +106,7 @@ const Auth = () => {
     const formData = new FormData(e.currentTarget);
     const username = (formData.get("username") as string)?.trim();
     const email = (formData.get("email") as string)?.trim();
-    const password = formData.get("password") as string;
+    const password = (formData.get("password") as string);
 
     if (!username || !email || !password) {
       toast({
