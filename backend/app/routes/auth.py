@@ -3,6 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from ..extensions import db
 from ..models.user import User
 from ..utils.helpers import login_required, admin_required, validate_required_fields
+from sqlalchemy import or_
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -26,12 +27,14 @@ def register():
         password = data["password"]
         phone_number = data.get("phone_number")
 
+        # Check for existing username/email
         if User.query.filter_by(username=username).first():
             return jsonify({"message": "Username already exists"}), 400
 
         if User.query.filter_by(email=email).first():
             return jsonify({"message": "Email already exists"}), 400
 
+        # Create user
         user = User(
             username=username,
             email=email,
@@ -67,8 +70,8 @@ def register():
 @auth_bp.route("/login", methods=["POST"])
 def login():
     """
-    Login using email OR username.
-    Admin login supported.
+    Login using email OR username (case-insensitive for email).
+    Session-based auth, admin supported.
     """
     try:
         data = request.get_json() or {}
@@ -78,15 +81,21 @@ def login():
         if not identifier or not password:
             return jsonify({"message": "Email/Username and password are required"}), 400
 
-        identifier = identifier.strip().lower()
+        identifier = identifier.strip()
+        email_identifier = identifier.lower()  # lowercase only for email comparison
 
+        # Find user by email OR username
         user = User.query.filter(
-            (User.email == identifier) | (User.username == identifier)
+            or_(
+                User.email == email_identifier,
+                User.username == identifier
+            )
         ).first()
 
         if not user or not user.check_password(password):
             return jsonify({"message": "Invalid credentials"}), 401
 
+        # Login successful, start session
         session.clear()
         session["user_id"] = user.id
         session.permanent = True
@@ -100,6 +109,9 @@ def login():
         return jsonify({"message": "Login failed", "error": str(e)}), 500
 
 
+# ----------------------------
+# LOGOUT
+# ----------------------------
 @auth_bp.route("/logout", methods=["POST"])
 @login_required
 def logout():
@@ -113,7 +125,6 @@ def logout():
 @auth_bp.route("/check-auth", methods=["GET"])
 def check_auth():
     user_id = session.get("user_id")
-
     if not user_id:
         return jsonify({"authenticated": False}), 200
 

@@ -49,43 +49,18 @@ const Auth = () => {
       return;
     }
 
-    // login() now returns a boolean, so we fetch the user separately
     const success = await login(identifier, password);
 
     if (success) {
-      // Refresh the user from context to get updated info immediately
-      const loggedInUser = await (async () => {
-        // Fetch the current user directly from /auth/me
-        try {
-          const res = await fetch("http://localhost:5000/api/auth/me", {
-            method: "GET",
-            credentials: "include",
-          });
-          const data = await res.json();
-          if (res.ok && data.user) return data.user;
-        } catch (err) {
-          console.error("Failed to get logged-in user:", err);
-        }
-        return null;
-      })();
-
-      if (loggedInUser?.is_admin) {
-        toast({
-          title: "Login successful!",
-          description: "Welcome to the admin dashboard",
-        });
-        navigate("/admin");
-      } else {
-        toast({
-          title: "Login successful!",
-          description: `Welcome back, ${identifier}`,
-        });
-        navigate("/");
-      }
+      toast({
+        title: "Login successful!",
+        description: `Welcome back, ${identifier}`,
+      });
+      navigate(user?.is_admin ? "/admin" : "/");
     } else {
       toast({
         title: "Login failed",
-        description: "Invalid credentials",
+        description: "Invalid username/email or password",
         variant: "destructive",
       });
     }
@@ -103,7 +78,7 @@ const Auth = () => {
     const formData = new FormData(e.currentTarget);
     const username = (formData.get("username") as string)?.trim();
     const email = (formData.get("email") as string)?.trim();
-    const password = (formData.get("password") as string);
+    const password = formData.get("password") as string;
 
     if (!username || !email || !password) {
       toast({
@@ -118,7 +93,10 @@ const Auth = () => {
     const success = await signup(username, email, password);
 
     if (success) {
-      toast({ title: "Account created!", description: `Welcome, ${username}` });
+      toast({
+        title: "Account created!",
+        description: `Welcome, ${username}`,
+      });
       navigate("/"); // redirect new user to homepage
     } else {
       toast({

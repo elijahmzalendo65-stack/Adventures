@@ -61,14 +61,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ username: identifier, password }),
+        // send identifier as 'email' if it contains '@', otherwise 'username'
+        body: JSON.stringify(
+          identifier.includes("@")
+            ? { email: identifier, password }
+            : { username: identifier, password }
+        ),
       });
 
       const data = await res.json();
 
       if (res.ok && data.user) {
-        // Directly update user state here
-        setUser(data.user);
+        setUser(data.user); // update state
         return true;
       }
 
@@ -95,7 +99,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const data = await res.json();
 
       if (res.ok && data.user) {
-        setUser(data.user);
+        setUser(data.user); // update state
         return true;
       }
 
