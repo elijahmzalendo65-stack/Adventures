@@ -100,9 +100,6 @@ def login():
         return jsonify({"message": "Login failed", "error": str(e)}), 500
 
 
-# ----------------------------
-# LOGOUT
-# ----------------------------
 @auth_bp.route("/logout", methods=["POST"])
 @login_required
 def logout():

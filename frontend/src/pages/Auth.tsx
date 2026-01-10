@@ -145,7 +145,7 @@ const Auth = () => {
 
         <Card>
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Coffee & Adventures Tours</CardTitle>
+            <CardTitle className="text-2xl">Mlima Adventures Tours</CardTitle>
             <CardDescription>
               Join us for unforgettable experiences in Central Kenya
             </CardDescription>

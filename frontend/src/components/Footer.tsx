@@ -6,7 +6,7 @@ const Footer = () => {
       <div className="container mx-auto">
         <div className="grid md:grid-cols-3 gap-8 mb-8">
           <div>
-            <h3 className="text-xl font-bold mb-4">Mulima Adventures</h3>
+            <h3 className="text-xl font-bold mb-4">Mlima Adventures</h3>
             <p className="text-primary-foreground/80 mb-4">
               Experience authentic agri-tourism and thrilling adventures in Central Kenya. Every day and weekend trips available.
             </p>
@@ -43,9 +43,9 @@ const Footer = () => {
                 <Twitter className="w-6 h-6" />
               </a>
             </div>
-            <a href="/admin" className="text-sm text-primary-foreground/60 hover:text-primary-foreground transition-colors">
+            {/* <a href="/admin" className="text-sm text-primary-foreground/60 hover:text-primary-foreground transition-colors">
               Admin Dashboard
-            </a>
+            </a> */}
           </div>
         </div>
         
