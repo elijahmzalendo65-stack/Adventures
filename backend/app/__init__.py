@@ -1,6 +1,6 @@
 # app/__init__.py
-
-from flask import Flask, jsonify
+import os
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from .config import Config
 from .extensions import db, migrate, bcrypt
@@ -16,20 +16,25 @@ def create_app(config_class=Config):
     Flask application factory.
     Initializes the app, extensions, blueprints, and CORS.
     """
-    app = Flask(__name__)
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    frontend_dist = os.path.join(base_dir, "../../frontend/dist")
+    app = Flask(
+        __name__,
+    static_folder= frontend_dist ,
+    static_url_path=""
+)
+
+
+
+
     app.config.from_object(config_class)
 
-    # -----------------------------
-    # Initialize extensions
-    # -----------------------------
+    
     db.init_app(app)
     migrate.init_app(app, db)
     bcrypt.init_app(app)
 
-    # -----------------------------
-    # Enable CORS for frontend
-    # -----------------------------
-    # Allow frontend running on localhost:8080 to access API
+    
     CORS(
         app,
         supports_credentials=True,
@@ -45,23 +50,18 @@ def create_app(config_class=Config):
     app.register_blueprint(booking_bp)  # /api/bookings
     app.register_blueprint(admin_bp)  # /api/admin
 
-    # -----------------------------
-    # Root route for testing
-    # -----------------------------
-    @app.route("/", methods=["GET"])
-    def index():
-        return jsonify({"message": "Welcome to Adventures API"})
-
+  
+    
     # -----------------------------
     # Error handlers
     # -----------------------------
     @app.errorhandler(404)
     def not_found_error(error):
-        return jsonify({"message": "Resource not found", "error": str(error)}), 404
+            return jsonify({"message": "Resource not found", "error": str(error)}), 404
 
     @app.errorhandler(500)
     def internal_error(error):
-        db.session.rollback()  # Rollback in case of db errors
-        return jsonify({"message": "Internal server error", "error": str(error)}), 500
+            db.session.rollback()  # Rollback in case of db errors
+            return jsonify({"message": "Internal server error", "error": str(error)}), 500
 
     return app

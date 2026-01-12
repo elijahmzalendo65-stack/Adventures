@@ -1,5 +1,6 @@
 # run.py
-
+import os
+from flask import send_from_directory
 from dotenv import load_dotenv
 from app import create_app
 from app.extensions import db
@@ -8,6 +9,20 @@ from app.models.user import User
 load_dotenv()
 
 app = create_app()
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path):
+    """
+    Serves React / Vite / SPA frontend
+    """
+    print(f"Serving static file: {app.static_folder}, Path: {path}")
+    if path   and os.path.exists(os.path.join(app.static_folder, path)):
+        
+        return send_from_directory(app.static_folder, path)
+
+    return send_from_directory(app.static_folder, "index.html")
+
 
 
 def create_admin_user():
