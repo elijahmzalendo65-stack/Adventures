@@ -1,3 +1,5 @@
+# app/models/payment.py
+
 from ..extensions import db
 from datetime import datetime
 
@@ -27,13 +29,22 @@ class Payment(db.Model):
     # -----------------------------
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     adventure_id = db.Column(db.Integer, db.ForeignKey('adventures.id'), nullable=False)
+    booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=True)
 
     # -----------------------------
     # Relationships
     # -----------------------------
     user = db.relationship('User', back_populates='payments', lazy=True)
     adventure = db.relationship('Adventure', back_populates='payments', lazy=True)
-    booking = db.relationship('Booking', back_populates='payment_rel', uselist=False, lazy=True)
+
+    # Specify foreign_keys explicitly to fix ambiguity
+    booking = db.relationship(
+        'Booking',
+        back_populates='payment',
+        uselist=False,
+        lazy=True,
+        foreign_keys=[booking_id]  # <--- explicitly tell SQLAlchemy which FK to use
+    )
 
     # -----------------------------
     # Timestamps

@@ -82,7 +82,6 @@ class Booking(db.Model):
 
     # -----------------------------
     # Customer Details
-    # (defaults added to avoid migration crashes)
     # -----------------------------
     customer_name = db.Column(
         db.String(100),
@@ -137,7 +136,8 @@ class Booking(db.Model):
         "Payment",
         back_populates="booking",
         uselist=False,
-        lazy="joined"
+        lazy="joined",
+        foreign_keys="[Payment.booking_id]"  # <-- specify which FK to use
     )
 
     # -----------------------------
@@ -146,7 +146,6 @@ class Booking(db.Model):
     def __init__(self, **kwargs):
         if not kwargs.get("booking_reference"):
             kwargs["booking_reference"] = self.generate_booking_reference()
-
         super().__init__(**kwargs)
 
     # -----------------------------
@@ -154,17 +153,10 @@ class Booking(db.Model):
     # -----------------------------
     @staticmethod
     def generate_booking_reference() -> str:
-        """
-        Generate a unique booking reference.
-        Example: BK-A9X3FQ2P
-        """
         chars = string.ascii_uppercase + string.digits
         return "BK-" + "".join(secrets.choice(chars) for _ in range(8))
 
     def calculate_total_amount(self) -> float:
-        """
-        Calculate total amount based on adventure price and number of people.
-        """
         if self.adventure and self.number_of_people:
             self.total_amount = (self.adventure.price or 0) * self.number_of_people
         return self.total_amount
