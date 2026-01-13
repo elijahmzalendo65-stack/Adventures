@@ -12,6 +12,8 @@ psycopg2-binary = "*"
 python-dotenv = "*"
 python-decouple = "*"
 gunicorn = "*"
+flask-bcrypt = "*"
+requests = "*"
 
 [dev-packages]
 
