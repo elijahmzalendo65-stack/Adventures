@@ -9,7 +9,7 @@ class Config:
     # Database
     SQLALCHEMY_DATABASE_URI = config(
         'DATABASE_URL', 
-        default='postgresql://postgres:newpassword@localhost:5432/adventures_db'
+        default='postgresql://adventures_db_user:5gi4i0eSTheZ4oiEMWuvJ2kDR83Ztm2e@dpg-d5ivjo2li9vc73al1gk0-a.oregon-postgres.render.com/adventures_db'
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
    
