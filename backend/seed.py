@@ -87,3 +87,4 @@ def seed_adventures():
 
 if __name__ == "__main__":
     seed_adventures()
+

@@ -7,7 +7,7 @@ from app.extensions import db
 from app.models.user import User
 
 load_dotenv()
-
+# pip install pipenv && pipenv install && npm install --prefix frontend && npm run build --prefix frontend
 app = create_app()
 
 @app.route("/", defaults={"path": ""})
