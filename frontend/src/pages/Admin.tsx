@@ -43,7 +43,7 @@ const Admin = () => {
   const [userSearchTerm, setUserSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const API_BASE = "http://localhost:5000/api/admin";
+  const API_BASE = "https://mlima-adventures.onrender.com";
 
   // ----------------------
   // Fetch Dashboard Stats
@@ -98,7 +98,7 @@ const Admin = () => {
   // ----------------------
   const handleLogout = async () => {
     try {
-      await axios.post("http://localhost:5000/api/auth/logout", {}, { withCredentials: true });
+      await axios.post("https://mlima-adventures.onrender.com", {}, { withCredentials: true });
       navigate("/login");
     } catch (err) {
       console.error("Failed to logout", err);

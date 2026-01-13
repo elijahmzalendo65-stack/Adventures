@@ -54,7 +54,7 @@ const Auth = () => {
     if (success) {
       // Get fresh user data immediately from backend
       try {
-        const res = await fetch("http://localhost:5000/api/auth/me", {
+        const res = await fetch("https://mlima-adventures.onrender.com", {
           method: "GET",
           credentials: "include",
         });

@@ -83,7 +83,7 @@ const BookingModal = ({
       const adventureDateISO = new Date(date).toISOString();
 
       const res = await axios.post(
-        "http://localhost:5000/api/bookings/",
+        "https://mlima-adventures.onrender.com",
         {
           adventure_id: adventureId,
           adventure_date: adventureDateISO,

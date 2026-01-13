@@ -57,7 +57,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // ----------------------
   const login = async (identifier: string, password: string): Promise<boolean> => {
     try {
-      const res = await fetch("http://localhost:5000/api/auth/login", {
+      const res = await fetch("https://mlima-adventures.onrender.com", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -89,7 +89,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // ----------------------
   const signup = async (username: string, email: string, password: string): Promise<boolean> => {
     try {
-      const res = await fetch("http://localhost:5000/api/auth/register", {
+      const res = await fetch("https://mlima-adventures.onrender.com", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -116,7 +116,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // ----------------------
   const logout = async (): Promise<void> => {
     try {
-      const res = await fetch("http://localhost:5000/api/auth/logout", {
+      const res = await fetch("https://mlima-adventures.onrender.com", {
         method: "POST",
         credentials: "include",
       });
@@ -132,7 +132,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // ----------------------
   const checkAuth = async (): Promise<void> => {
     try {
-      const res = await fetch("http://localhost:5000/api/auth/check-auth", {
+      const res = await fetch("https://mlima-adventures.onrender.com", {
         method: "GET",
         credentials: "include",
       });
@@ -155,7 +155,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // ----------------------
   const refreshUser = async (): Promise<void> => {
     try {
-      const res = await fetch("http://localhost:5000/api/auth/me", {
+      const res = await fetch("https://mlima-adventures.onrender.com", {
         method: "GET",
         credentials: "include",
       });
@@ -174,7 +174,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (!user?.is_admin) return null;
 
     try {
-      const res = await fetch("http://localhost:5000/api/admin/dashboard", {
+      const res = await fetch("https://mlima-adventures.onrender.com", {
         method: "GET",
         credentials: "include",
       });
@@ -195,7 +195,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (!user?.is_admin) return [];
 
     try {
-      const res = await fetch("http://localhost:5000/api/admin/users", {
+      const res = await fetch("https://mlima-adventures.onrender.com", {
         method: "GET",
         credentials: "include",
       });
@@ -216,7 +216,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (!user?.is_admin) return [];
 
     try {
-      const res = await fetch("http://localhost:5000/api/admin/bookings", {
+      const res = await fetch("https://mlima-adventures.onrender.com", {
         method: "GET",
         credentials: "include",
       });

@@ -38,8 +38,10 @@ def create_app(config_class=Config):
     CORS(
         app,
         supports_credentials=True,
-        resources={r"/api/*": {"origins": ["http://localhost:8080"]}},
+        resources={r"/api/*": {"origins": ["https://mlima-adventures.onrender.com","http://localhost:8080"]
+        }},
     )
+
 
     # -----------------------------
     # Register Blueprints

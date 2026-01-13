@@ -120,7 +120,7 @@ const Pricing = () => {
         return;
       }
 
-      const res = await axios.get("http://localhost:5000/api/bookings/", {
+      const res = await axios.get("https://mlima-adventures.onrender.com", {
         headers: {
           Authorization: `Bearer ${token}`,
         },
