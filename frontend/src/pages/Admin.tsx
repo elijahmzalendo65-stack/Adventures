@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/contexts/AuthContext"; // Import AuthContext
 
 interface User {
   id: number;
@@ -35,52 +36,68 @@ interface DashboardStats {
 
 const Admin = () => {
   const navigate = useNavigate();
+  const { user, logout, fetchAdminStats, fetchAdminUsers, fetchAdminBookings } = useAuth(); // Use AuthContext
 
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [userSearchTerm, setUserSearchTerm] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>("");
 
-  const API_BASE = "https://mlima-adventures.onrender.com";
+  // Check if user is admin
+  useEffect(() => {
+    if (!user?.is_admin) {
+      console.log("❌ User is not admin, redirecting...");
+      navigate("/");
+    }
+  }, [user, navigate]);
 
   // ----------------------
-  // Fetch Dashboard Stats
+  // Fetch Dashboard Stats using AuthContext
   // ----------------------
   const fetchDashboard = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/dashboard`, { withCredentials: true });
-      setDashboardStats(res.data.dashboard);
+      console.log("📊 Fetching admin stats...");
+      const stats = await fetchAdminStats();
+      if (stats) {
+        setDashboardStats(stats.dashboard);
+        console.log("✅ Dashboard stats loaded:", stats.dashboard);
+      }
     } catch (err) {
       console.error("Failed to fetch dashboard stats", err);
-      if (axios.isAxiosError(err) && err.response?.status === 401) {
-        navigate("/login"); // redirect if not authenticated
-      }
+      setError("Failed to load dashboard statistics");
     }
   };
 
   // ----------------------
-  // Fetch Users
+  // Fetch Users using AuthContext
   // ----------------------
   const fetchUsers = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/users`, { withCredentials: true });
-      setUsers(res.data.users);
+      console.log("👥 Fetching admin users...");
+      const adminUsers = await fetchAdminUsers();
+      setUsers(adminUsers);
+      console.log("✅ Users loaded:", adminUsers.length);
     } catch (err) {
       console.error("Failed to fetch users", err);
+      setError("Failed to load users");
     }
   };
 
   // ----------------------
-  // Fetch Bookings
+  // Fetch Bookings using AuthContext
   // ----------------------
   const fetchBookings = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/bookings`, { withCredentials: true });
-      setBookings(res.data.bookings);
+      console.log("📋 Fetching admin bookings...");
+      const adminBookings = await fetchAdminBookings();
+      setBookings(adminBookings);
+      console.log("✅ Bookings loaded:", adminBookings.length);
     } catch (err) {
       console.error("Failed to fetch bookings", err);
+      setError("Failed to load bookings");
     }
   };
 
@@ -88,20 +105,40 @@ const Admin = () => {
   // Fetch all data on load
   // ----------------------
   useEffect(() => {
-    setLoading(true);
-    Promise.all([fetchDashboard(), fetchUsers(), fetchBookings()])
-      .finally(() => setLoading(false));
-  }, []);
+    const loadData = async () => {
+      if (!user?.is_admin) return;
+      
+      setLoading(true);
+      setError("");
+      
+      try {
+        await Promise.all([
+          fetchDashboard(),
+          fetchUsers(),
+          fetchBookings()
+        ]);
+      } catch (err) {
+        console.error("Error loading admin data:", err);
+        setError("Failed to load admin data. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [user]); // Run when user changes
 
   // ----------------------
-  // Logout
+  // Logout using AuthContext
   // ----------------------
   const handleLogout = async () => {
     try {
-      await axios.post("https://mlima-adventures.onrender.com", {}, { withCredentials: true });
+      await logout();
       navigate("/login");
     } catch (err) {
       console.error("Failed to logout", err);
+      // Still redirect to login on error
+      navigate("/login");
     }
   };
 
@@ -110,8 +147,8 @@ const Admin = () => {
   // ----------------------
   const filteredBookings = bookings.filter(
     (booking) =>
-      booking.user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      booking.adventure.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      booking.user?.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      booking.adventure?.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       booking.id.toString().includes(searchTerm)
   );
 
@@ -136,7 +173,35 @@ const Admin = () => {
     }
   };
 
-  if (loading) return <div className="text-center mt-20">Loading...</div>;
+  if (!user?.is_admin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Access Denied</CardTitle>
+            <CardDescription>You don't have permission to access the admin dashboard.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => navigate("/")} className="w-full">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Home
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Loading admin dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -150,7 +215,13 @@ const Admin = () => {
                 Back to Site
               </Button>
             </Link>
-            <h1 className="text-2xl font-bold text-primary">Admin Dashboard</h1>
+            <div>
+              <h1 className="text-2xl font-bold text-primary">Admin Dashboard</h1>
+              <p className="text-sm text-muted-foreground">
+                Welcome, {user?.username} 
+                {user?.is_admin && <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-1 rounded">Admin</span>}
+              </p>
+            </div>
           </div>
           <Button variant="outline" onClick={handleLogout}>
             <LogOut className="mr-2 h-4 w-4" />
@@ -160,6 +231,21 @@ const Admin = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        {/* Error Display */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-700">{error}</p>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.location.reload()}
+              className="mt-2"
+            >
+              Retry
+            </Button>
+          </div>
+        )}
+
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card className="hover:shadow-lg transition-shadow">
@@ -193,6 +279,18 @@ const Admin = () => {
               </div>
             </CardContent>
           </Card>
+
+          <Card className="hover:shadow-lg transition-shadow">
+            <CardHeader className="flex items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Active Bookings</CardTitle>
+              <Calendar className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {bookings.filter(b => b.status === 'confirmed' || b.status === 'pending').length}
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Data Tables with Tabs */}
@@ -200,8 +298,8 @@ const Admin = () => {
           <Tabs defaultValue="bookings" className="w-full">
             <CardHeader>
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="bookings">Bookings</TabsTrigger>
-                <TabsTrigger value="users">Registered Users</TabsTrigger>
+                <TabsTrigger value="bookings">Bookings ({bookings.length})</TabsTrigger>
+                <TabsTrigger value="users">Registered Users ({users.length})</TabsTrigger>
               </TabsList>
             </CardHeader>
 
@@ -241,20 +339,24 @@ const Admin = () => {
                         filteredBookings.map((booking) => (
                           <TableRow key={booking.id}>
                             <TableCell className="font-medium">{booking.id}</TableCell>
-                            <TableCell>{booking.user.username}</TableCell>
-                            <TableCell>{booking.adventure.title}</TableCell>
+                            <TableCell>{booking.user?.username || "Unknown"}</TableCell>
+                            <TableCell>{booking.adventure?.title || "Unknown Adventure"}</TableCell>
                             <TableCell>
-                              {new Date(booking.adventure_date).toLocaleDateString("en-GB", {
-                                day: "2-digit",
-                                month: "short",
-                                year: "numeric",
-                              })}
+                              {booking.adventure_date ? (
+                                new Date(booking.adventure_date).toLocaleDateString("en-GB", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  year: "numeric",
+                                })
+                              ) : (
+                                "N/A"
+                              )}
                             </TableCell>
-                            <TableCell>{booking.number_of_people}</TableCell>
-                            <TableCell>{booking.total_amount.toLocaleString()}</TableCell>
+                            <TableCell>{booking.number_of_people || 1}</TableCell>
+                            <TableCell>{(booking.total_amount || 0).toLocaleString()}</TableCell>
                             <TableCell>
                               <Badge variant="secondary" className={getStatusColor(booking.status)}>
-                                {booking.status}
+                                {booking.status || "pending"}
                               </Badge>
                             </TableCell>
                           </TableRow>
@@ -262,7 +364,7 @@ const Admin = () => {
                       ) : (
                         <TableRow>
                           <TableCell colSpan={7} className="text-center text-muted-foreground">
-                            No bookings found
+                            {bookings.length === 0 ? "No bookings yet" : "No matching bookings found"}
                           </TableCell>
                         </TableRow>
                       )}
@@ -308,18 +410,22 @@ const Admin = () => {
                             <TableCell>{user.username}</TableCell>
                             <TableCell>{user.email}</TableCell>
                             <TableCell>
-                              {new Date(user.created_at).toLocaleDateString("en-GB", {
-                                day: "2-digit",
-                                month: "short",
-                                year: "numeric",
-                              })}
+                              {user.created_at ? (
+                                new Date(user.created_at).toLocaleDateString("en-GB", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  year: "numeric",
+                                })
+                              ) : (
+                                "N/A"
+                              )}
                             </TableCell>
                           </TableRow>
                         ))
                       ) : (
                         <TableRow>
                           <TableCell colSpan={4} className="text-center text-muted-foreground">
-                            No users found
+                            {users.length === 0 ? "No users yet" : "No matching users found"}
                           </TableCell>
                         </TableRow>
                       )}

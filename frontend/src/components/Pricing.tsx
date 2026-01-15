@@ -48,7 +48,17 @@ const Pricing = () => {
   const [bookingError, setBookingError] = useState<string>("");
 
   // Get auth context
-  const { user, fetchUserBookings } = useAuth();
+  const { user, isAuthenticated, fetchUserBookings } = useAuth();
+
+  // Helper to check localStorage for user (as backup)
+  const checkLocalStorageUser = () => {
+    try {
+      const storedUser = localStorage.getItem('user');
+      return storedUser ? JSON.parse(storedUser) : null;
+    } catch (error) {
+      return null;
+    }
+  };
 
   // List of packages
   const packages: Package[] = [
@@ -128,15 +138,28 @@ const Pricing = () => {
     });
     
     // Refresh bookings after new booking
-    loadUserBookings();
+    setTimeout(() => {
+      loadUserBookings();
+    }, 2000); // Wait 2 seconds for server to process
   };
 
-  // Fetch user bookings using AuthContext or direct API call
+  // Fetch user bookings using AuthContext
   const loadUserBookings = async () => {
     try {
       console.log("🔄 Loading user bookings...");
       
-      if (!user) {
+      // Check both AuthContext and localStorage for authentication
+      const currentUser = user || checkLocalStorageUser();
+      const hasAuth = isAuthenticated || currentUser;
+      
+      console.log("👤 Auth state:", { 
+        isAuthenticated,
+        hasAuthContextUser: !!user,
+        hasLocalStorageUser: !!currentUser,
+        currentUsername: currentUser?.username
+      });
+      
+      if (!hasAuth || !currentUser) {
         console.log("👤 User not logged in, skipping booking fetch");
         setBookingStatuses([]);
         setBookingError("");
@@ -146,39 +169,23 @@ const Pricing = () => {
       setLoadingBookings(true);
       setBookingError("");
       
-      // Try using AuthContext first
+      // Try using AuthContext
+      console.log("📋 Calling fetchUserBookings...");
       const response = await fetchUserBookings();
-      console.log("📊 Received bookings response from AuthContext:", response);
+      console.log("📊 Received response from fetchUserBookings:", response);
       
-      // Handle different response structures
+      // Handle the response from updated AuthContext
       let bookingsData: any[] = [];
       
       if (Array.isArray(response)) {
-        // Direct array response
         bookingsData = response;
-        console.log("✅ Received direct array of bookings");
+        console.log(`✅ Received ${bookingsData.length} bookings as array`);
       } else if (response && typeof response === 'object') {
-        // Object response - check for nested bookings
+        // Try to extract bookings from object
         if (Array.isArray((response as any).bookings)) {
           bookingsData = (response as any).bookings;
-          console.log("✅ Received bookings in 'bookings' property");
         } else if (Array.isArray((response as any).data)) {
           bookingsData = (response as any).data;
-          console.log("✅ Received bookings in 'data' property");
-        } else {
-          // If empty object or different structure, try direct API call
-          console.log("⚠️ Unexpected response structure, trying direct API call");
-          const directResponse = await fetchUserBookingsDirectly();
-          if (directResponse) {
-            bookingsData = directResponse;
-          }
-        }
-      } else {
-        // If response is null/undefined, try direct API call
-        console.log("⚠️ Null/undefined response, trying direct API call");
-        const directResponse = await fetchUserBookingsDirectly();
-        if (directResponse) {
-          bookingsData = directResponse;
         }
       }
       
@@ -186,8 +193,10 @@ const Pricing = () => {
 
       // Safely map the bookings data
       const userBookings: BookingStatus[] = bookingsData
-        .filter((booking: any) => booking != null) // Filter out null/undefined
+        .filter((booking: any) => booking != null)
         .map((booking: ApiBooking) => {
+          console.log("🔍 Processing booking:", booking);
+          
           // Extract adventure ID from different possible locations
           let adventureId = 0;
           if (booking.adventure_id) {
@@ -210,25 +219,33 @@ const Pricing = () => {
           
           // Determine status
           let status: "pending" | "completed" = "pending";
-          if (booking.status === "completed" || booking.payment_status === "completed" || booking.status === "confirmed") {
+          if (booking.status === "completed" || 
+              booking.payment_status === "completed" || 
+              booking.status === "confirmed" ||
+              booking.payment_status === "paid" ||
+              booking.status === "paid") {
             status = "completed";
-          } else if (booking.status === "pending" || booking.payment_status === "pending") {
+          } else if (booking.status === "pending" || 
+                     booking.payment_status === "pending" ||
+                     booking.status === "awaiting_payment") {
             status = "pending";
           }
           
+          console.log(`📝 Mapped booking: id=${bookingId}, adventureId=${adventureId}, status=${status}`);
           return {
             bookingId,
             adventureId,
             status
           };
         })
-        .filter((booking: BookingStatus) => booking.bookingId > 0 && booking.adventureId > 0); // Filter valid bookings
+        .filter((booking: BookingStatus) => booking.bookingId > 0 && booking.adventureId > 0);
 
       console.log("✅ Processed bookings:", userBookings);
       setBookingStatuses(userBookings);
       
-      if (userBookings.length === 0) {
+      if (userBookings.length === 0 && bookingsData.length === 0) {
         console.log("ℹ️ No bookings found for user");
+        setBookingError(""); // Clear error if just no bookings
       }
     } catch (err: any) {
       console.error("❌ Failed to fetch user bookings:", err);
@@ -237,67 +254,30 @@ const Pricing = () => {
       if (err.message?.includes("Unauthorized") || err.status === 401) {
         setBookingError("Please log in to view your bookings.");
       } else if (err.message?.includes("404") || err.message?.includes("Not Found")) {
-        setBookingError("Bookings endpoint not found. Please check backend setup.");
+        // This is expected if booking endpoints don't exist yet
+        console.log("📝 Booking endpoints not yet implemented on server");
+        setBookingError(""); // Don't show error for missing endpoints
+      } else if (err.message?.includes("Network")) {
+        setBookingError("Network error. Please check your connection.");
       } else {
-        setBookingError("Unable to load bookings. Please try again later.");
+        setBookingError(""); // Clear error on other failures
       }
     } finally {
       setLoadingBookings(false);
     }
   };
 
-  // Direct API call as fallback if AuthContext fails
-  const fetchUserBookingsDirectly = async (): Promise<any[]> => {
-    try {
-      console.log("🔄 Attempting direct API call for bookings...");
-      const API_BASE_URL = "https://mlima-adventures.onrender.com";
-      
-      const response = await fetch(`${API_BASE_URL}/api/bookings`, {
-        method: "GET",
-        credentials: "include",
-        headers: {
-          "Accept": "application/json"
-        }
-      });
-
-      console.log("📡 Direct API response status:", response.status);
-
-      if (!response.ok) {
-        // Try alternative endpoints
-        const altResponse = await fetch(`${API_BASE_URL}/api/user/bookings`, {
-          method: "GET",
-          credentials: "include",
-          headers: {
-            "Accept": "application/json"
-          }
-        });
-
-        if (altResponse.ok) {
-          const data = await altResponse.json();
-          return Array.isArray(data) ? data : data.bookings || data.data || [];
-        }
-
-        throw new Error(`Failed to fetch bookings: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return Array.isArray(data) ? data : data.bookings || data.data || [];
-    } catch (error) {
-      console.error("❌ Direct API call failed:", error);
-      return [];
-    }
-  };
-
   useEffect(() => {
+    console.log("🏁 Pricing component mounted or user changed");
     loadUserBookings();
 
     // Only poll if user is logged in
-    const interval = user ? setInterval(loadUserBookings, 60000) : null; // Reduced to 60 seconds
+    const interval = isAuthenticated ? setInterval(loadUserBookings, 60000) : null;
     
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [user]); // Re-run when user changes
+  }, [isAuthenticated, user]); // Re-run when auth state changes
 
   // Get latest booking status for a given adventure
   const getBookingStatus = (adventureId: number) => {
@@ -309,11 +289,21 @@ const Pricing = () => {
 
   // Handle login prompt
   const handleBookNowWithCheck = (pkg: Package) => {
-    if (!user) {
+    // Check both AuthContext and localStorage
+    const currentUser = user || checkLocalStorageUser();
+    const hasAuth = isAuthenticated || currentUser;
+    
+    if (!hasAuth) {
       alert("Please login to book an adventure!");
       return;
     }
     handleBookNow(pkg);
+  };
+
+  // Check if user can book (auth check)
+  const canBook = () => {
+    const currentUser = user || checkLocalStorageUser();
+    return isAuthenticated || currentUser;
   };
 
   return (
@@ -328,7 +318,7 @@ const Pricing = () => {
               Choose the perfect adventure that fits your schedule and budget.
             </p>
             
-            {!user && (
+            {!canBook() && (
               <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg max-w-md mx-auto">
                 <p className="text-yellow-800">
                   <span className="font-semibold">Note:</span> Please login to book adventures and view your bookings.
@@ -348,12 +338,12 @@ const Pricing = () => {
             </div>
           )}
 
-          {loadingBookings ? (
+          {loadingBookings && canBook() ? (
             <div className="text-center mb-8">
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               <p className="text-muted-foreground mt-2">Loading your bookings...</p>
             </div>
-          ) : !user ? (
+          ) : !canBook() ? (
             <div className="text-center mb-8 p-4 bg-blue-50 border border-blue-200 rounded-lg max-w-md mx-auto">
               <p className="text-blue-800">
                 Login to see your booking status and make new bookings.
@@ -365,11 +355,18 @@ const Pricing = () => {
                 Found {bookingStatuses.length} booking{bookingStatuses.length !== 1 ? 's' : ''}
               </p>
             </div>
+          ) : canBook() ? (
+            <div className="text-center mb-8 p-4 bg-gray-50 border border-gray-200 rounded-lg max-w-md mx-auto">
+              <p className="text-gray-700">
+                No bookings found. Ready to book your first adventure?
+              </p>
+            </div>
           ) : null}
 
           <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
             {packages.map((pkg, index) => {
               const status = getBookingStatus(pkg.id);
+              const canUserBook = canBook();
 
               return (
                 <Card
@@ -432,13 +429,13 @@ const Pricing = () => {
                         className="w-full"
                         variant={pkg.popular ? "hero" : "default"}
                         onClick={() => handleBookNowWithCheck(pkg)}
-                        disabled={!user}
+                        disabled={!canUserBook}
                       >
-                        {!user ? "Login to Book" : "Book Now"}
+                        {!canUserBook ? "Login to Book" : "Book Now"}
                       </Button>
                     )}
                     
-                    {!user && (
+                    {!canUserBook && (
                       <p className="text-xs text-muted-foreground text-center mt-1">
                         Login required to book
                       </p>
