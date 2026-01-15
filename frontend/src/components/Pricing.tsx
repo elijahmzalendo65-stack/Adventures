@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Check } from "lucide-react";
 import BookingModal from "@/components/BookingModal";
-import axios from "axios";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Package {
   id: number;
@@ -27,11 +27,28 @@ interface BookingStatus {
   status: "pending" | "completed";
 }
 
+// Define a type for the booking response
+interface ApiBooking {
+  id?: number;
+  booking_id?: number;
+  bookingId?: number;
+  adventure_id?: number;
+  adventureId?: number;
+  adventure?: { id?: number };
+  status?: string;
+  payment_status?: string;
+}
+
 const Pricing = () => {
   const [selectedAdventureId, setSelectedAdventureId] = useState<number | null>(null);
   const [selectedPrice, setSelectedPrice] = useState<number>(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [bookingStatuses, setBookingStatuses] = useState<BookingStatus[]>([]);
+  const [loadingBookings, setLoadingBookings] = useState(false);
+  const [bookingError, setBookingError] = useState<string>("");
+
+  // Get auth context
+  const { user, fetchUserBookings } = useAuth();
 
   // List of packages
   const packages: Package[] = [
@@ -109,46 +126,178 @@ const Pricing = () => {
         return [...prev, { bookingId, adventureId: selectedAdventureId, status }];
       }
     });
+    
+    // Refresh bookings after new booking
+    loadUserBookings();
   };
 
-  // Fetch user bookings with token
-  const fetchUserBookings = async () => {
+  // Fetch user bookings using AuthContext or direct API call
+  const loadUserBookings = async () => {
     try {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        console.warn("No auth token found. User might not be logged in.");
+      console.log("🔄 Loading user bookings...");
+      
+      if (!user) {
+        console.log("👤 User not logged in, skipping booking fetch");
+        setBookingStatuses([]);
+        setBookingError("");
         return;
       }
 
-      const res = await axios.get("https://mlima-adventures.onrender.com", {
+      setLoadingBookings(true);
+      setBookingError("");
+      
+      // Try using AuthContext first
+      const response = await fetchUserBookings();
+      console.log("📊 Received bookings response from AuthContext:", response);
+      
+      // Handle different response structures
+      let bookingsData: any[] = [];
+      
+      if (Array.isArray(response)) {
+        // Direct array response
+        bookingsData = response;
+        console.log("✅ Received direct array of bookings");
+      } else if (response && typeof response === 'object') {
+        // Object response - check for nested bookings
+        if (Array.isArray((response as any).bookings)) {
+          bookingsData = (response as any).bookings;
+          console.log("✅ Received bookings in 'bookings' property");
+        } else if (Array.isArray((response as any).data)) {
+          bookingsData = (response as any).data;
+          console.log("✅ Received bookings in 'data' property");
+        } else {
+          // If empty object or different structure, try direct API call
+          console.log("⚠️ Unexpected response structure, trying direct API call");
+          const directResponse = await fetchUserBookingsDirectly();
+          if (directResponse) {
+            bookingsData = directResponse;
+          }
+        }
+      } else {
+        // If response is null/undefined, try direct API call
+        console.log("⚠️ Null/undefined response, trying direct API call");
+        const directResponse = await fetchUserBookingsDirectly();
+        if (directResponse) {
+          bookingsData = directResponse;
+        }
+      }
+      
+      console.log("📋 Final bookings data:", bookingsData);
+
+      // Safely map the bookings data
+      const userBookings: BookingStatus[] = bookingsData
+        .filter((booking: any) => booking != null) // Filter out null/undefined
+        .map((booking: ApiBooking) => {
+          // Extract adventure ID from different possible locations
+          let adventureId = 0;
+          if (booking.adventure_id) {
+            adventureId = booking.adventure_id;
+          } else if (booking.adventureId) {
+            adventureId = booking.adventureId;
+          } else if (booking.adventure?.id) {
+            adventureId = booking.adventure.id;
+          }
+          
+          // Extract booking ID
+          let bookingId = 0;
+          if (booking.id) {
+            bookingId = booking.id;
+          } else if (booking.booking_id) {
+            bookingId = booking.booking_id;
+          } else if (booking.bookingId) {
+            bookingId = booking.bookingId;
+          }
+          
+          // Determine status
+          let status: "pending" | "completed" = "pending";
+          if (booking.status === "completed" || booking.payment_status === "completed" || booking.status === "confirmed") {
+            status = "completed";
+          } else if (booking.status === "pending" || booking.payment_status === "pending") {
+            status = "pending";
+          }
+          
+          return {
+            bookingId,
+            adventureId,
+            status
+          };
+        })
+        .filter((booking: BookingStatus) => booking.bookingId > 0 && booking.adventureId > 0); // Filter valid bookings
+
+      console.log("✅ Processed bookings:", userBookings);
+      setBookingStatuses(userBookings);
+      
+      if (userBookings.length === 0) {
+        console.log("ℹ️ No bookings found for user");
+      }
+    } catch (err: any) {
+      console.error("❌ Failed to fetch user bookings:", err);
+      
+      // Handle specific error cases
+      if (err.message?.includes("Unauthorized") || err.status === 401) {
+        setBookingError("Please log in to view your bookings.");
+      } else if (err.message?.includes("404") || err.message?.includes("Not Found")) {
+        setBookingError("Bookings endpoint not found. Please check backend setup.");
+      } else {
+        setBookingError("Unable to load bookings. Please try again later.");
+      }
+    } finally {
+      setLoadingBookings(false);
+    }
+  };
+
+  // Direct API call as fallback if AuthContext fails
+  const fetchUserBookingsDirectly = async (): Promise<any[]> => {
+    try {
+      console.log("🔄 Attempting direct API call for bookings...");
+      const API_BASE_URL = "https://mlima-adventures.onrender.com";
+      
+      const response = await fetch(`${API_BASE_URL}/api/bookings`, {
+        method: "GET",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+          "Accept": "application/json"
+        }
       });
 
-      const userBookings: BookingStatus[] = res.data.bookings.map((b: any) => ({
-        bookingId: b.id,
-        adventureId: b.adventure_id,
-        status: b.status,
-      }));
+      console.log("📡 Direct API response status:", response.status);
 
-      setBookingStatuses(userBookings);
-    } catch (err: any) {
-      if (err.response?.status === 401) {
-        console.error("Unauthorized: Please log in to view bookings.");
-      } else {
-        console.error("Failed to fetch user bookings", err);
+      if (!response.ok) {
+        // Try alternative endpoints
+        const altResponse = await fetch(`${API_BASE_URL}/api/user/bookings`, {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            "Accept": "application/json"
+          }
+        });
+
+        if (altResponse.ok) {
+          const data = await altResponse.json();
+          return Array.isArray(data) ? data : data.bookings || data.data || [];
+        }
+
+        throw new Error(`Failed to fetch bookings: ${response.status}`);
       }
+
+      const data = await response.json();
+      return Array.isArray(data) ? data : data.bookings || data.data || [];
+    } catch (error) {
+      console.error("❌ Direct API call failed:", error);
+      return [];
     }
   };
 
   useEffect(() => {
-    fetchUserBookings();
+    loadUserBookings();
 
-    // Poll every 5 seconds to reflect real-time payment status
-    const interval = setInterval(fetchUserBookings, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    // Only poll if user is logged in
+    const interval = user ? setInterval(loadUserBookings, 60000) : null; // Reduced to 60 seconds
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [user]); // Re-run when user changes
 
   // Get latest booking status for a given adventure
   const getBookingStatus = (adventureId: number) => {
@@ -156,6 +305,15 @@ const Pricing = () => {
       .filter((b) => b.adventureId === adventureId)
       .sort((a, b) => b.bookingId - a.bookingId); // latest booking first
     return bookings.length > 0 ? bookings[0].status : null;
+  };
+
+  // Handle login prompt
+  const handleBookNowWithCheck = (pkg: Package) => {
+    if (!user) {
+      alert("Please login to book an adventure!");
+      return;
+    }
+    handleBookNow(pkg);
   };
 
   return (
@@ -169,7 +327,45 @@ const Pricing = () => {
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
               Choose the perfect adventure that fits your schedule and budget.
             </p>
+            
+            {!user && (
+              <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg max-w-md mx-auto">
+                <p className="text-yellow-800">
+                  <span className="font-semibold">Note:</span> Please login to book adventures and view your bookings.
+                </p>
+              </div>
+            )}
           </div>
+
+          {bookingError && (
+            <div className="text-center mb-8">
+              <div className="inline-block p-4 bg-red-50 border border-red-200 rounded-lg max-w-md mx-auto">
+                <p className="text-red-700">{bookingError}</p>
+                <p className="text-sm text-red-600 mt-1">
+                  You can still proceed with new bookings.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {loadingBookings ? (
+            <div className="text-center mb-8">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <p className="text-muted-foreground mt-2">Loading your bookings...</p>
+            </div>
+          ) : !user ? (
+            <div className="text-center mb-8 p-4 bg-blue-50 border border-blue-200 rounded-lg max-w-md mx-auto">
+              <p className="text-blue-800">
+                Login to see your booking status and make new bookings.
+              </p>
+            </div>
+          ) : bookingStatuses.length > 0 ? (
+            <div className="text-center mb-8 p-4 bg-green-50 border border-green-200 rounded-lg max-w-md mx-auto">
+              <p className="text-green-700">
+                Found {bookingStatuses.length} booking{bookingStatuses.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+          ) : null}
 
           <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
             {packages.map((pkg, index) => {
@@ -215,23 +411,37 @@ const Pricing = () => {
 
                   <CardFooter className="flex flex-col gap-2">
                     {status ? (
-                      <span
-                        className={`font-semibold text-center transition-colors duration-500 ${
-                          status === "completed" ? "text-green-600" : "text-yellow-600"
-                        }`}
-                      >
-                        {status === "completed"
-                          ? "Booking Confirmed ✅"
-                          : "Pending Payment ⏳"}
-                      </span>
+                      <div className="text-center">
+                        <span
+                          className={`font-semibold text-center transition-colors duration-500 block ${
+                            status === "completed" ? "text-green-600" : "text-yellow-600"
+                          }`}
+                        >
+                          {status === "completed"
+                            ? "Booking Confirmed ✅"
+                            : "Pending Payment ⏳"}
+                        </span>
+                        {status === "pending" && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Complete payment to confirm
+                          </p>
+                        )}
+                      </div>
                     ) : (
                       <Button
                         className="w-full"
                         variant={pkg.popular ? "hero" : "default"}
-                        onClick={() => handleBookNow(pkg)}
+                        onClick={() => handleBookNowWithCheck(pkg)}
+                        disabled={!user}
                       >
-                        Book Now
+                        {!user ? "Login to Book" : "Book Now"}
                       </Button>
+                    )}
+                    
+                    {!user && (
+                      <p className="text-xs text-muted-foreground text-center mt-1">
+                        Login required to book
+                      </p>
                     )}
                   </CardFooter>
                 </Card>

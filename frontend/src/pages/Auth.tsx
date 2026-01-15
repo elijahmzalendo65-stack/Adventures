@@ -17,7 +17,7 @@ import { ArrowLeft } from "lucide-react";
 
 const Auth = () => {
   const navigate = useNavigate();
-  const { user, login, signup } = useAuth();
+  const { user, login, signup, checkAuth } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
   // Redirect already logged-in users
@@ -48,52 +48,51 @@ const Auth = () => {
       return;
     }
 
-    // Perform login
-    const success = await login(identifier, password);
+    try {
+      console.log("🔐 Attempting login...");
+      
+      // Perform login using AuthContext
+      const success = await login(identifier, password);
 
-    if (success) {
-      // Get fresh user data immediately from backend
-      try {
-        const res = await fetch("https://mlima-adventures.onrender.com", {
-          method: "GET",
-          credentials: "include",
-        });
-        const data = await res.json();
-
-        if (res.ok && data.user) {
-          const loggedInUser = data.user;
-
+      if (success) {
+        console.log("✅ Login successful, checking auth status...");
+        
+        // Refresh auth status to get updated user data
+        await checkAuth();
+        
+        // Wait a moment for the auth context to update
+        setTimeout(() => {
+          console.log("✅ Redirecting user...");
+          
           toast({
             title: "Login successful!",
-            description: `Welcome back, ${loggedInUser.username}`,
+            description: "Welcome back!",
           });
 
-          // Redirect based on admin flag
-          navigate(loggedInUser.is_admin ? "/admin" : "/");
-        } else {
-          toast({
-            title: "Login failed",
-            description: "Unable to fetch user info",
-            variant: "destructive",
-          });
-        }
-      } catch (err) {
-        console.error("Failed to fetch logged-in user:", err);
+          // Navigate based on user role
+          if (user?.is_admin) {
+            navigate("/admin");
+          } else {
+            navigate("/");
+          }
+        }, 500);
+      } else {
         toast({
           title: "Login failed",
-          description: "Something went wrong",
+          description: "Invalid username/email or password",
           variant: "destructive",
         });
       }
-    } else {
+    } catch (error: any) {
+      console.error("❌ Login error:", error);
       toast({
         title: "Login failed",
-        description: "Invalid username/email or password",
+        description: error.message || "An error occurred during login",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   };
 
   // ----------------------
@@ -106,7 +105,7 @@ const Auth = () => {
     const formData = new FormData(e.currentTarget);
     const username = (formData.get("username") as string)?.trim();
     const email = (formData.get("email") as string)?.trim();
-    const password = (formData.get("password") as string);
+    const password = formData.get("password") as string;
 
     if (!username || !email || !password) {
       toast({
@@ -118,23 +117,51 @@ const Auth = () => {
       return;
     }
 
-    const success = await signup(username, email, password);
+    try {
+      console.log("📝 Attempting signup...");
+      
+      // Perform signup using AuthContext
+      const success = await signup(username, email, password);
 
-    if (success) {
-      toast({
-        title: "Account created!",
-        description: `Welcome, ${username}`,
-      });
-      navigate("/"); // redirect new user to homepage
-    } else {
+      if (success) {
+        console.log("✅ Signup successful, checking auth status...");
+        
+        // Refresh auth status to get updated user data
+        await checkAuth();
+        
+        // Wait a moment for the auth context to update
+        setTimeout(() => {
+          console.log("✅ Redirecting new user...");
+          
+          toast({
+            title: "Account created!",
+            description: `Welcome to Mlima Adventures, ${username}!`,
+          });
+
+          // Navigate based on user role (new users are typically not admin)
+          if (user?.is_admin) {
+            navigate("/admin");
+          } else {
+            navigate("/");
+          }
+        }, 500);
+      } else {
+        toast({
+          title: "Signup failed",
+          description: "Username or email already exists",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      console.error("❌ Signup error:", error);
       toast({
         title: "Signup failed",
-        description: "Username or email already exists",
+        description: error.message || "An error occurred during registration",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   };
 
   return (
@@ -174,6 +201,7 @@ const Auth = () => {
                       type="text"
                       placeholder="Username or Email"
                       required
+                      disabled={isLoading}
                     />
                   </div>
                   <div className="space-y-2">
@@ -184,11 +212,19 @@ const Auth = () => {
                       type="password"
                       placeholder="••••••••"
                       required
+                      disabled={isLoading}
                     />
                   </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
+                  <Button 
+                    type="submit" 
+                    className="w-full" 
+                    disabled={isLoading}
+                  >
                     {isLoading ? "Logging in..." : "Login"}
                   </Button>
+                  <p className="text-xs text-muted-foreground text-center">
+                    You can login with either username or email
+                  </p>
                 </form>
               </TabsContent>
 
@@ -201,9 +237,13 @@ const Auth = () => {
                       id="signup-username"
                       name="username"
                       type="text"
-                      placeholder="Your username"
+                      placeholder="Choose a username"
                       required
+                      disabled={isLoading}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      This will be your display name
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="signup-email">Email</Label>
@@ -213,6 +253,7 @@ const Auth = () => {
                       type="email"
                       placeholder="your@email.com"
                       required
+                      disabled={isLoading}
                     />
                   </div>
                   <div className="space-y-2">
@@ -224,16 +265,35 @@ const Auth = () => {
                       placeholder="••••••••"
                       required
                       minLength={6}
+                      disabled={isLoading}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Must be at least 6 characters
+                    </p>
                   </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
+                  <Button 
+                    type="submit" 
+                    className="w-full" 
+                    disabled={isLoading}
+                  >
                     {isLoading ? "Creating account..." : "Create Account"}
                   </Button>
+                  <p className="text-xs text-muted-foreground text-center">
+                    By signing up, you agree to our Terms & Conditions
+                  </p>
                 </form>
               </TabsContent>
             </Tabs>
           </CardContent>
         </Card>
+
+        {/* Debug info (remove in production) */}
+        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+          <p className="text-sm text-gray-600">
+            <strong>Note:</strong> Using session-based authentication. 
+            No token storage needed in localStorage.
+          </p>
+        </div>
       </div>
     </div>
   );
