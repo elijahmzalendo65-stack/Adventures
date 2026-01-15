@@ -1,3 +1,4 @@
+# app/routes/auth.py
 from flask import Blueprint, request, jsonify, session
 from sqlalchemy.exc import IntegrityError
 from ..extensions import db
@@ -9,7 +10,7 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 
 # ----------------------------
-# REGISTER
+# REGISTER (FIXED - NO to_dict())
 # ----------------------------
 @auth_bp.route("/register", methods=["POST"])
 def register():
@@ -50,9 +51,17 @@ def register():
         session["user_id"] = user.id
         session.permanent = True
 
+        # ✅ FIXED: Return SIMPLE dictionary, NOT user.to_dict()
         return jsonify({
             "message": "Registration successful",
-            "user": user.to_dict()
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "is_admin": user.is_admin,
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+            }
         }), 201
 
     except IntegrityError:
@@ -61,11 +70,12 @@ def register():
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Registration failed", "error": str(e)}), 500
+        # ✅ FIXED: Return simple error without exposing details
+        return jsonify({"message": "Registration failed"}), 500
 
 
 # ----------------------------
-# LOGIN
+# LOGIN (FIXED - Removed hardcoded "admin456")
 # ----------------------------
 @auth_bp.route("/login", methods=["POST"])
 def login():
@@ -82,13 +92,13 @@ def login():
             return jsonify({"message": "Email/Username and password are required"}), 400
 
         identifier = identifier.strip()
-        email_identifier = identifier.lower()  # lowercase only for email comparison
+        email_identifier = identifier.lower()
 
-        # Find user by email OR username
+        # ✅ FIXED: Search by ACTUAL user input, not hardcoded "admin456"
         user = User.query.filter(
             or_(
-                User.email == "admin456",
-                User.username == "admin456"
+                User.email == email_identifier,
+                User.username == identifier
             )
         ).first()
 
@@ -100,13 +110,21 @@ def login():
         session["user_id"] = user.id
         session.permanent = True
 
+        # ✅ FIXED: Return SIMPLE dictionary
         return jsonify({
             "message": "Login successful",
-            "user": user.to_dict()
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "is_admin": user.is_admin,
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+            }
         }), 200
 
     except Exception as e:
-        return jsonify({"message": "Login failed", "error": str(e)}), 500
+        return jsonify({"message": "Login failed"}), 500
 
 
 # ----------------------------
@@ -120,7 +138,7 @@ def logout():
 
 
 # ----------------------------
-# CHECK AUTH
+# CHECK AUTH (FIXED - NO to_dict())
 # ----------------------------
 @auth_bp.route("/check-auth", methods=["GET"])
 def check_auth():
@@ -133,24 +151,42 @@ def check_auth():
         session.clear()
         return jsonify({"authenticated": False}), 200
 
+    # ✅ FIXED: Return SIMPLE dictionary
     return jsonify({
         "authenticated": True,
-        "user": user.to_dict()
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "phone_number": user.phone_number,
+            "is_admin": user.is_admin,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        }
     }), 200
 
 
 # ----------------------------
-# CURRENT USER PROFILE
+# CURRENT USER PROFILE (FIXED - NO to_dict())
 # ----------------------------
 @auth_bp.route("/me", methods=["GET"])
 @login_required
 def get_current_user():
     user = User.query.get(session["user_id"])
-    return jsonify({"user": user.to_dict()}), 200
+    # ✅ FIXED: Return SIMPLE dictionary
+    return jsonify({
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "phone_number": user.phone_number,
+            "is_admin": user.is_admin,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        }
+    }), 200
 
 
 # ----------------------------
-# ADMIN – VIEW ALL USERS
+# ADMIN – VIEW ALL USERS (FIXED - NO to_dict())
 # ----------------------------
 @auth_bp.route("/admin/users", methods=["GET"])
 @admin_required
@@ -161,6 +197,90 @@ def admin_get_users():
     """
     users = User.query.order_by(User.created_at.desc()).all()
 
+    # ✅ FIXED: Return SIMPLE dictionaries
+    users_data = []
+    for user in users:
+        users_data.append({
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "phone_number": user.phone_number,
+            "is_admin": user.is_admin,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        })
+
     return jsonify({
-        "users": [user.to_dict() for user in users]
+        "users": users_data
     }), 200
+
+
+# ----------------------------
+# EMERGENCY REGISTRATION ENDPOINT
+# ----------------------------
+@auth_bp.route("/register-simple", methods=["POST"])
+def register_simple():
+    """
+    EMERGENCY registration endpoint that uses DIRECT SQL.
+    Bypasses all ORM relationship issues.
+    """
+    try:
+        data = request.get_json() or {}
+        
+        username = (data.get("username") or "").strip()
+        email = (data.get("email") or "").strip().lower()
+        password = data.get("password") or ""
+        phone_number = data.get("phone_number") or ""
+        
+        if not username or not email or not password:
+            return jsonify({"message": "Username, email and password are required"}), 400
+        
+        # DIRECT SQL - bypass ORM completely
+        from sqlalchemy import text
+        from werkzeug.security import generate_password_hash
+        
+        # 1. Check if user exists
+        check_sql = text("SELECT id FROM users WHERE username = :u OR email = :e")
+        existing = db.session.execute(check_sql, {"u": username, "e": email}).fetchone()
+        
+        if existing:
+            return jsonify({"message": "Username or email already exists"}), 400
+        
+        # 2. Create user with DIRECT SQL
+        password_hash = generate_password_hash(password)
+        
+        insert_sql = text("""
+            INSERT INTO users (username, email, password_hash, phone_number, created_at, updated_at)
+            VALUES (:username, :email, :password_hash, :phone, NOW(), NOW())
+            RETURNING id, username, email, phone_number, is_admin, created_at
+        """)
+        
+        result = db.session.execute(insert_sql, {
+            "username": username,
+            "email": email,
+            "password_hash": password_hash,
+            "phone": phone_number
+        })
+        db.session.commit()
+        
+        user_data = result.fetchone()
+        
+        # 3. Create session
+        session.clear()
+        session["user_id"] = user_data.id
+        session.permanent = True
+        
+        return jsonify({
+            "message": "Registration successful!",
+            "user": {
+                "id": user_data.id,
+                "username": user_data.username,
+                "email": user_data.email,
+                "phone_number": user_data.phone_number,
+                "is_admin": user_data.is_admin,
+                "created_at": user_data.created_at.isoformat() if user_data.created_at else None,
+            }
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Registration failed. Please try again."}), 500
