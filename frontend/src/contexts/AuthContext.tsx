@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 
 export interface User {
   id: number;
@@ -30,11 +31,12 @@ export interface AdminStats {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   setUser: (user: User | null) => void;
-  login: (identifier: string, password: string) => Promise<boolean>;
-  signup: (username: string, email: string, password: string) => Promise<boolean>;
+  login: (identifier: string, password: string) => Promise<{ success: boolean; redirectTo?: string }>;
+  signup: (username: string, email: string, password: string) => Promise<{ success: boolean; redirectTo?: string }>;
   logout: () => Promise<void>;
-  checkAuth: () => Promise<void>;
+  checkAuth: () => Promise<{ authenticated: boolean; isAdmin?: boolean }>;
   refreshUser: () => Promise<void>;
   fetchAdminStats: () => Promise<AdminStats | null>;
   fetchAdminUsers: () => Promise<User[]>;
@@ -44,35 +46,25 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// FIX: Use environment-based URL
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? "https://mlima-adventures.onrender.com"
-  : "http://localhost:5000"; // Change this to your local Flask server
-
-// OR use Vite environment variable:
-// const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-
-// OR create a simple config:
-const config = {
-  apiBaseUrl: window.location.hostname === 'localhost' 
-    ? "http://localhost:5000" 
-    : "https://mlima-adventures.onrender.com"
-};
-
-// Use this:
-// const API_BASE_URL = config.apiBaseUrl;
+// Use Vite environment variable or fallback to localhost
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // We'll use a function to get navigate later
+  const [navigateFn, setNavigateFn] = useState<((path: string) => void) | null>(null);
 
   // Helper function to get user from localStorage
   const getUserFromLocalStorage = (): User | null => {
     try {
       const storedUser = localStorage.getItem('user');
       if (storedUser) {
-        return JSON.parse(storedUser);
+        const parsedUser = JSON.parse(storedUser);
+        return parsedUser;
       }
     } catch (error) {
       console.error("❌ Error parsing user from localStorage:", error);
@@ -91,8 +83,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const storedUser = getUserFromLocalStorage();
       if (storedUser) {
         console.log("📱 Found stored user:", storedUser.username);
+        console.log("👑 Admin status:", storedUser.is_admin);
         setUser(storedUser);
         setIsAuthenticated(true);
+        setIsAdmin(storedUser.is_admin || false);
       }
       
       // Verify with server
@@ -108,12 +102,44 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     initializeAuth();
   }, []);
 
+  // Set navigate function from outside component
+  const setNavigationFunction = (navigate: (path: string) => void) => {
+    setNavigateFn(() => navigate);
+  };
+
+  // Function to handle redirection after login
+  const handleLoginRedirect = (userData: User): string => {
+    console.log("🔄 Determining redirect for user:", userData.username);
+    console.log("👑 Admin status:", userData.is_admin);
+    
+    // Get the current path or intended redirect from localStorage
+    const storedRedirect = localStorage.getItem('redirect_after_login');
+    const defaultRedirect = "/"; // Default to home page
+    
+    // Clear the stored redirect
+    if (storedRedirect) {
+      localStorage.removeItem('redirect_after_login');
+    }
+    
+    // Check if user is admin
+    if (userData.is_admin) {
+      console.log("🎯 Redirecting admin to dashboard");
+      return "/admin/dashboard";
+    }
+    
+    // Regular users go to their intended destination or home
+    const redirectTo = storedRedirect || defaultRedirect;
+    console.log("🎯 Redirecting user to:", redirectTo);
+    return redirectTo;
+  };
+
   // ----------------------
-  // LOGIN
+  // LOGIN (UPDATED with auto-redirection logic)
   // ----------------------
-  const login = async (identifier: string, password: string): Promise<boolean> => {
+  const login = async (identifier: string, password: string): Promise<{ success: boolean; redirectTo?: string }> => {
     try {
       console.log("🔐 Attempting login to:", `${API_BASE_URL}/api/auth/login`);
+      console.log("👤 Login attempt for:", identifier);
       
       const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
@@ -121,8 +147,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           "Content-Type": "application/json",
           "Accept": "application/json"
         },
-        credentials: "include", // IMPORTANT: For session cookies
-        mode: 'cors', // Explicitly set CORS mode
+        credentials: "include",
+        mode: 'cors',
         body: JSON.stringify({
           email: identifier.includes("@") ? identifier : undefined,
           username: !identifier.includes("@") ? identifier : undefined,
@@ -136,32 +162,51 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (!contentType || !contentType.includes("application/json")) {
         const text = await res.text();
         console.error("❌ Non-JSON response:", text.substring(0, 200));
-        return false;
+        return { 
+          success: false
+        };
       }
 
       const data = await res.json();
-      console.log("✅ Login response:", data);
+      console.log("✅ Login response data:", data);
 
       if (res.ok && data.user) {
-        setUser(data.user);
+        const userData = data.user;
+        console.log("👤 User authenticated:", userData.username);
+        console.log("👑 Admin status:", userData.is_admin);
+        
+        setUser(userData);
         setIsAuthenticated(true);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        setIsAdmin(userData.is_admin || false);
+        
+        localStorage.setItem('user', JSON.stringify(userData));
         console.log("✅ Login successful");
-        return true;
+        
+        // Determine where to redirect
+        const redirectTo = handleLoginRedirect(userData);
+        
+        return { 
+          success: true, 
+          redirectTo
+        };
+      } else {
+        console.error("❌ Login failed:", data.message);
+        return { 
+          success: false
+        };
       }
-
-      console.error("❌ Login failed:", data.message);
-      return false;
     } catch (err) {
       console.error("❌ Login request failed:", err);
-      return false;
+      return { 
+        success: false
+      };
     }
   };
 
   // ----------------------
-  // SIGNUP
+  // SIGNUP (UPDATED with auto-redirection)
   // ----------------------
-  const signup = async (username: string, email: string, password: string): Promise<boolean> => {
+  const signup = async (username: string, email: string, password: string): Promise<{ success: boolean; redirectTo?: string }> => {
     try {
       console.log("📝 Attempting signup to:", `${API_BASE_URL}/api/auth/register`);
       
@@ -186,25 +231,34 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (!contentType || !contentType.includes("application/json")) {
         const text = await res.text();
         console.error("❌ Non-JSON response:", text.substring(0, 200));
-        return false;
+        return { success: false };
       }
 
       const data = await res.json();
       console.log("✅ Signup response:", data);
 
       if (res.ok && data.user) {
-        setUser(data.user);
+        const userData = data.user;
+        setUser(userData);
         setIsAuthenticated(true);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        setIsAdmin(userData.is_admin || false);
+        localStorage.setItem('user', JSON.stringify(userData));
         console.log("✅ Signup successful");
-        return true;
+        
+        // Determine where to redirect
+        const redirectTo = handleLoginRedirect(userData);
+        
+        return { 
+          success: true, 
+          redirectTo
+        };
       }
 
       console.error("❌ Signup failed:", data.message);
-      return false;
+      return { success: false };
     } catch (err) {
       console.error("❌ Signup request failed:", err);
-      return false;
+      return { success: false };
     }
   };
 
@@ -230,15 +284,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setUser(null);
       setIsAuthenticated(false);
+      setIsAdmin(false);
       localStorage.removeItem('user');
       console.log("✅ Local auth state cleared");
     }
   };
 
   // ----------------------
-  // CHECK AUTH
+  // CHECK AUTH (UPDATED for admin status)
   // ----------------------
-  const checkAuth = async (): Promise<void> => {
+  const checkAuth = async (): Promise<{ authenticated: boolean; isAdmin?: boolean }> => {
     try {
       console.log("🔍 Checking auth at:", `${API_BASE_URL}/api/auth/check-auth`);
       
@@ -246,6 +301,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (storedUser) {
         setUser(storedUser);
         setIsAuthenticated(true);
+        setIsAdmin(storedUser.is_admin || false);
       }
       
       const res = await fetch(`${API_BASE_URL}/api/auth/check-auth`, {
@@ -264,38 +320,63 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (!storedUser) {
           setUser(null);
           setIsAuthenticated(false);
+          setIsAdmin(false);
         }
-        return;
+        return { authenticated: false };
       }
 
       const contentType = res.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
         console.error("❌ Non-JSON response");
-        return;
+        return { authenticated: false };
       }
 
       const data = await res.json();
       console.log("✅ Auth response:", data);
 
       if (data.authenticated && data.user) {
-        setUser(data.user);
+        const userData = data.user;
+        setUser(userData);
         setIsAuthenticated(true);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        setIsAdmin(userData.is_admin || false);
+        localStorage.setItem('user', JSON.stringify(userData));
+        return { 
+          authenticated: true, 
+          isAdmin: userData.is_admin || false 
+        };
       } else if (data.user) {
-        setUser(data.user);
+        const userData = data.user;
+        setUser(userData);
         setIsAuthenticated(true);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        setIsAdmin(userData.is_admin || false);
+        localStorage.setItem('user', JSON.stringify(userData));
+        return { 
+          authenticated: true, 
+          isAdmin: userData.is_admin || false 
+        };
       } else if (!storedUser) {
         setUser(null);
         setIsAuthenticated(false);
+        setIsAdmin(false);
+        return { authenticated: false };
       }
+      
+      return { 
+        authenticated: true, 
+        isAdmin: storedUser?.is_admin || false 
+      };
     } catch (err) {
       console.error("❌ Auth check failed:", err);
       const storedUser = getUserFromLocalStorage();
       if (!storedUser) {
         setUser(null);
         setIsAuthenticated(false);
+        setIsAdmin(false);
       }
+      return { 
+        authenticated: !!storedUser, 
+        isAdmin: storedUser?.is_admin || false 
+      };
     }
   };
 
@@ -317,8 +398,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (res.ok) {
         const data = await res.json();
         if (data.user) {
-          setUser(data.user);
-          localStorage.setItem('user', JSON.stringify(data.user));
+          const userData = data.user;
+          setUser(userData);
+          setIsAdmin(userData.is_admin || false);
+          localStorage.setItem('user', JSON.stringify(userData));
         }
       }
     } catch (err) {
@@ -381,14 +464,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // ADMIN FUNCTIONS
   // ----------------------
   const fetchAdminStats = async (): Promise<AdminStats | null> => {
-    const currentUser = user || getUserFromLocalStorage();
-    
-    if (!currentUser?.is_admin) {
+    if (!isAdmin) {
+      console.log("❌ Access denied: User is not an admin");
       return null;
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/admin/stats`, {
+      const res = await fetch(`${API_BASE_URL}/api/admin/dashboard`, {
         method: "GET",
         credentials: "include",
         mode: 'cors',
@@ -398,8 +480,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
 
       if (res.ok) {
-        return await res.json();
+        const data = await res.json();
+        return data;
       }
+      
+      console.error("❌ Failed to fetch admin stats:", res.status);
       return null;
     } catch (err) {
       console.error("❌ Failed to fetch stats:", err);
@@ -408,14 +493,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const fetchAdminUsers = async (): Promise<User[]> => {
-    const currentUser = user || getUserFromLocalStorage();
-    
-    if (!currentUser?.is_admin) {
+    if (!isAdmin) {
+      console.log("❌ Access denied: User is not an admin");
       return [];
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/admin/users`, {
+      const res = await fetch(`${API_BASE_URL}/api/admin/users`, {
         method: "GET",
         credentials: "include",
         mode: 'cors',
@@ -436,14 +520,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const fetchAdminBookings = async (): Promise<any[]> => {
-    const currentUser = user || getUserFromLocalStorage();
-    
-    if (!currentUser?.is_admin) {
+    if (!isAdmin) {
+      console.log("❌ Access denied: User is not an admin");
       return [];
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/admin/bookings`, {
+      const res = await fetch(`${API_BASE_URL}/api/admin/bookings`, {
         method: "GET",
         credentials: "include",
         mode: 'cors',
@@ -480,6 +563,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       value={{
         user,
         isAuthenticated,
+        isAdmin,
         setUser,
         login,
         signup,
@@ -501,4 +585,38 @@ export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (!context) throw new Error("useAuth must be used within an AuthProvider");
   return context;
+};
+
+// Helper function to use auth with navigation
+export const useAuthWithNavigation = () => {
+  const auth = useAuth();
+  const navigate = useNavigate();
+  
+  // Create enhanced login function with automatic navigation
+  const loginWithRedirect = async (identifier: string, password: string) => {
+    const result = await auth.login(identifier, password);
+    
+    if (result.success && result.redirectTo) {
+      navigate(result.redirectTo);
+    }
+    
+    return result;
+  };
+  
+  // Create enhanced signup function with automatic navigation
+  const signupWithRedirect = async (username: string, email: string, password: string) => {
+    const result = await auth.signup(username, email, password);
+    
+    if (result.success && result.redirectTo) {
+      navigate(result.redirectTo);
+    }
+    
+    return result;
+  };
+  
+  return {
+    ...auth,
+    login: loginWithRedirect,
+    signup: signupWithRedirect
+  };
 };

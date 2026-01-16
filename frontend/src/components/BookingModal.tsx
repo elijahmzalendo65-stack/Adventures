@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Smartphone, AlertCircle, LogIn } from "lucide-react";
+import { CalendarIcon, Smartphone, AlertCircle, LogIn, Search } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -54,17 +54,22 @@ const BookingModal = ({
   const [authChecked, setAuthChecked] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [userData, setUserData] = useState<any>(null);
+  const [availableAdventures, setAvailableAdventures] = useState<any[]>([]);
+  const [validatedAdventureId, setValidatedAdventureId] = useState<number | null>(null);
+  const [checkingAdventure, setCheckingAdventure] = useState(false);
 
   const totalPrice = adventurePrice * parseInt(formData.guests);
 
-  // Check authentication status when modal opens
+  // Check authentication status and available adventures when modal opens
   useEffect(() => {
     if (open) {
       checkAuthentication();
+      fetchAvailableAdventures();
     } else {
       // Reset auth state when modal closes
       setAuthChecked(false);
       setAuthError(null);
+      setValidatedAdventureId(null);
     }
   }, [open]);
 
@@ -137,6 +142,107 @@ const BookingModal = ({
     }
   };
 
+  const fetchAvailableAdventures = async () => {
+    try {
+      console.log('🔄 Fetching available adventures...');
+      const response = await axios.get(
+        'http://localhost:5000/api/adventures/',
+        { withCredentials: true }
+      );
+      
+      if (response.data && Array.isArray(response.data)) {
+        setAvailableAdventures(response.data);
+        console.log(`✅ Found ${response.data.length} available adventures`);
+        
+        // Check if the provided adventureId exists
+        const adventureExists = response.data.find((adv: any) => adv.id === adventureId);
+        
+        if (adventureExists) {
+          setValidatedAdventureId(adventureId);
+          console.log(`✅ Adventure ${adventureId} exists: ${adventureExists.title}`);
+        } else {
+          console.warn(`⚠️ Adventure ${adventureId} not found. Available IDs:`, 
+            response.data.map((a: any) => a.id));
+          
+          // If no adventures exist, create a test one
+          if (response.data.length === 0) {
+            await createTestAdventure();
+          } else {
+            // Use the first available adventure
+            const firstAdventure = response.data[0];
+            setValidatedAdventureId(firstAdventure.id);
+            console.log(`🔄 Using adventure ${firstAdventure.id} instead: ${firstAdventure.title}`);
+            
+            toast({
+              title: "Adventure Updated",
+              description: `Using "${firstAdventure.title}" for booking`,
+              variant: "default",
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error fetching adventures:', error);
+      // Try to create a test adventure
+      await createTestAdventure();
+    }
+  };
+
+  const createTestAdventure = async () => {
+    try {
+      console.log('🔄 Creating test adventure...');
+      setCheckingAdventure(true);
+      
+      // Try to create adventure 101 first
+      const response = await axios.post(
+        'http://localhost:5000/api/adventures/debug/create-test-101',
+        {},
+        { withCredentials: true }
+      );
+      
+      if (response.status === 201 || response.status === 200) {
+        console.log('✅ Created test adventure:', response.data);
+        setValidatedAdventureId(101);
+        
+        toast({
+          title: "Test Adventure Created",
+          description: "A test adventure has been created for booking",
+          variant: "default",
+        });
+        
+        // Refresh available adventures
+        await fetchAvailableAdventures();
+      }
+    } catch (error) {
+      console.error('❌ Failed to create test adventure:', error);
+      
+      // Try adventure 102 as fallback
+      try {
+        const response102 = await axios.post(
+          'http://localhost:5000/api/adventures/debug/create-test-102',
+          {},
+          { withCredentials: true }
+        );
+        
+        if (response102.status === 201 || response102.status === 200) {
+          setValidatedAdventureId(102);
+          await fetchAvailableAdventures();
+        }
+      } catch (error2) {
+        console.error('❌ Failed to create any test adventure:', error2);
+      }
+    } finally {
+      setCheckingAdventure(false);
+    }
+  };
+
+  const validateCurrentAdventure = async () => {
+    if (!validatedAdventureId) {
+      await fetchAvailableAdventures();
+    }
+    return validatedAdventureId;
+  };
+
   const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
@@ -150,7 +256,7 @@ const BookingModal = ({
   };
 
   // -----------------------------
-  // Step 1: Create Booking (FIXED)
+  // Step 1: Create Booking (UPDATED)
   // -----------------------------
   const handleBookingSubmit = async () => {
     if (!formData.name || !formData.email || !formData.phone || !date) {
@@ -180,7 +286,19 @@ const BookingModal = ({
     setProcessing(true);
 
     try {
-      console.log("📝 Creating booking for adventure:", adventureId);
+      // Validate and get a working adventure ID
+      const workingAdventureId = await validateCurrentAdventure();
+      
+      if (!workingAdventureId) {
+        toast({
+          title: "No Adventures Available",
+          description: "Please try again or contact support",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.log("📝 Creating booking for adventure:", workingAdventureId);
       console.log("👤 Form data:", formData);
       console.log("📅 Selected date:", date);
       console.log("👤 Current user:", userData);
@@ -189,7 +307,7 @@ const BookingModal = ({
       const adventureDate = formatDateForBackend(date);
 
       const bookingPayload = {
-        adventure_id: adventureId,
+        adventure_id: workingAdventureId,
         adventure_date: adventureDate,
         number_of_people: parseInt(formData.guests),
         customer_name: formData.name,
@@ -262,7 +380,15 @@ const BookingModal = ({
         } else if (err.response.status === 400) {
           errorMessage = err.response.data.message || "Please check your input";
         } else if (err.response.status === 404) {
-          errorMessage = "Adventure not found or unavailable";
+          if (err.response.data?.message?.includes('Adventure')) {
+            errorMessage = "Adventure not found. Trying to fix...";
+            // Try to create a test adventure
+            setTimeout(() => {
+              createTestAdventure();
+            }, 1000);
+          } else {
+            errorMessage = "Service unavailable. Please try again.";
+          }
         } else if (err.response.status === 500) {
           errorMessage = "Server error. Please try again later.";
         } else if (err.response.data?.message) {
@@ -378,7 +504,38 @@ const BookingModal = ({
     setMpesaPhone("");
     setDate(undefined);
     setBookingId(null);
+    setValidatedAdventureId(null);
   };
+
+  // Show loading state while checking adventure
+  if (open && checkingAdventure) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-2xl flex items-center gap-2">
+              <Search className="h-6 w-6 text-blue-500" />
+              Preparing Adventure
+            </DialogTitle>
+            <DialogDescription>
+              Setting up adventure for booking...
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="flex flex-col items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+              <p className="mt-4 text-muted-foreground">
+                {availableAdventures.length === 0 
+                  ? "Creating a test adventure..." 
+                  : "Validating adventure availability..."}
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   // Show auth checking state
   if (open && !authChecked) {
@@ -507,6 +664,19 @@ const BookingModal = ({
 
         {step === 1 ? (
           <div className="space-y-4 py-4">
+            {/* Adventure status indicator */}
+            {validatedAdventureId && validatedAdventureId !== adventureId && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-2">
+                <p className="text-sm text-blue-700 flex items-center gap-2">
+                  <Search className="h-4 w-4" />
+                  Using adventure ID: {validatedAdventureId}
+                  {availableAdventures.find(a => a.id === validatedAdventureId)?.title && 
+                    ` (${availableAdventures.find(a => a.id === validatedAdventureId)?.title})`
+                  }
+                </p>
+              </div>
+            )}
+            
             {/* Authentication status indicator */}
             {isAuthenticated && userData && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-2">
@@ -611,14 +781,14 @@ const BookingModal = ({
             <Button
               className="w-full"
               onClick={handleBookingSubmit}
-              disabled={processing}
+              disabled={processing || !validatedAdventureId}
             >
               {processing ? (
                 <span className="flex items-center justify-center gap-2">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                   Processing...
                 </span>
-              ) : "Proceed to Payment"}
+              ) : validatedAdventureId ? "Proceed to Payment" : "Checking Adventure..."}
             </Button>
           </div>
         ) : (
@@ -630,7 +800,7 @@ const BookingModal = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Adventure ID:</span>
-                <span className="font-semibold">{adventureId}</span>
+                <span className="font-semibold">{validatedAdventureId || adventureId}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Guests:</span>
@@ -687,6 +857,8 @@ const BookingModal = ({
                   <li>• User ID: {userData?.id || "Not available"}</li>
                   <li>• Booking ID: {bookingId || "Not set"}</li>
                   <li>• Session active: {isAuthenticated ? "✅" : "❌"}</li>
+                  <li>• Adventure ID: {validatedAdventureId || "Not validated"}</li>
+                  <li>• Available adventures: {availableAdventures.length}</li>
                 </ul>
                 <div className="mt-2 flex gap-2">
                   <button 
@@ -700,6 +872,12 @@ const BookingModal = ({
                     onClick={() => window.open('http://localhost:5000/api/auth/debug-session', '_blank')}
                   >
                     Debug Session
+                  </button>
+                  <button 
+                    className="text-xs text-blue-600 hover:underline"
+                    onClick={fetchAvailableAdventures}
+                  >
+                    Refresh Adventures
                   </button>
                 </div>
               </div>

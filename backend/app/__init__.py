@@ -3,13 +3,12 @@ import os
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 from .config import Config
-from .extensions import db, migrate, bcrypt
+from .extensions import db, migrate, bcrypt, login_manager, cors
 from .routes.auth import auth_bp
 from .routes.adventures import adventures_bp
 from .routes.mpesa import mpesa_bp
 from .routes.booking import booking_bp
 from .routes.admin import admin_bp
-
 
 def create_app(config_class=Config):
     """
@@ -21,6 +20,7 @@ def create_app(config_class=Config):
     
     # IMPORTANT: Session configuration for authentication
     app.config.update(
+        SECRET_KEY=os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production',
         SESSION_COOKIE_SAMESITE='Lax',  # Allows cross-origin cookies
         SESSION_COOKIE_SECURE=False,     # False for local development
         SESSION_COOKIE_HTTPONLY=True,
@@ -32,6 +32,8 @@ def create_app(config_class=Config):
     db.init_app(app)
     migrate.init_app(app, db)
     bcrypt.init_app(app)
+    login_manager.init_app(app)  # ✅ CRITICAL: Initialize Flask-Login
+    cors.init_app(app)
 
     # -----------------------------
     # CORS Configuration - CRITICAL FIX
@@ -45,7 +47,7 @@ def create_app(config_class=Config):
         "https://mlima-adventures.onrender.com",  # Production
     ]
     
-    # Initialize CORS with ALL origins that need access
+    # Apply CORS configuration
     CORS(
         app,
         resources={
@@ -64,8 +66,7 @@ def create_app(config_class=Config):
                 "max_age": 600
             }
         },
-        supports_credentials=True,
-        expose_headers=['Set-Cookie']
+        supports_credentials=True
     )
 
     # -----------------------------
@@ -124,15 +125,43 @@ def create_app(config_class=Config):
         })
 
     # -----------------------------
+    # Test endpoint for bookings API
+    # -----------------------------
+    @app.route('/api/bookings/test')
+    def bookings_test():
+        """Test endpoint for bookings API."""
+        return jsonify({
+            "success": True,
+            "message": "Bookings API is working!",
+            "timestamp": os.path.getmtime(__file__)
+        })
+
+    # -----------------------------
     # Error handlers
     # -----------------------------
     @app.errorhandler(404)
     def not_found_error(error):
-        return jsonify({"message": "Resource not found"}), 404
+        return jsonify({
+            "success": False,
+            "message": "Resource not found",
+            "error": str(error)
+        }), 404
 
     @app.errorhandler(500)
     def internal_error(error):
         db.session.rollback()
-        return jsonify({"message": "Internal server error"}), 500
+        return jsonify({
+            "success": False,
+            "message": "Internal server error",
+            "error": str(error) if app.debug else "An internal error occurred"
+        }), 500
+
+    @app.errorhandler(401)
+    def unauthorized_error(error):
+        return jsonify({
+            "success": False,
+            "message": "Unauthorized access",
+            "error": "Please log in to access this resource"
+        }), 401
 
     return app
