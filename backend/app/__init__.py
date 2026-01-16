@@ -15,7 +15,53 @@ def create_app(config_class=Config):
     Flask application factory.
     Initializes the app, extensions, blueprints, and CORS.
     """
-    app = Flask(__name__)
+    # Get the backend directory
+    backend_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    
+    # Go up one level to project root, then into frontend/dist
+    project_root = os.path.dirname(backend_dir)  # Go up from backend
+    static_folder = os.path.join(project_root, 'frontend', 'dist')
+    
+    # If dist doesn't exist, try build folder
+    if not os.path.exists(static_folder):
+        static_folder = os.path.join(project_root, 'frontend', 'build')
+    
+    print(f"🎯 Project root: {project_root}")
+    print(f"🎯 Setting static folder to: {static_folder}")
+    print(f"🎯 Static folder exists: {os.path.exists(static_folder)}")
+    
+    # If static folder doesn't exist, provide helpful message
+    if not os.path.exists(static_folder):
+        print(f"❌ Static folder not found!")
+        print(f"   Please build your React app:")
+        print(f"   cd {os.path.join(project_root, 'frontend')} && npm run build")
+        
+        # Create a temporary static folder to avoid Flask errors
+        os.makedirs(static_folder, exist_ok=True)
+        with open(os.path.join(static_folder, 'index.html'), 'w') as f:
+            f.write("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Mlima Adventures - Please Build React App</title>
+            </head>
+            <body style="font-family: Arial, sans-serif; padding: 20px;">
+                <h1>React Frontend Not Built</h1>
+                <p>Please build your React app first:</p>
+                <pre style="background: #f0f0f0; padding: 10px; border-radius: 5px;">
+cd frontend && npm run build
+                </pre>
+                <p>Or check that your static folder is configured correctly.</p>
+                <p>Expected static folder at: <code>{}</code></p>
+            </body>
+            </html>
+            """.format(static_folder))
+    
+    # Initialize Flask with static folder
+    app = Flask(__name__, 
+                static_folder=static_folder,
+                static_url_path='')
+    
     app.config.from_object(config_class)
     
     # IMPORTANT: Session configuration for authentication
@@ -38,12 +84,12 @@ def create_app(config_class=Config):
     # -----------------------------
     # CORS Configuration - CRITICAL FIX
     # -----------------------------
-    # Your frontend runs on localhost:8080, backend on localhost:5000
+    # Add localhost:5000 to allowed origins since we're serving frontend from same origin
     allowed_origins = [
         "http://localhost:8080",        # Frontend dev server
         "http://127.0.0.1:8080",        # Frontend dev server alternative
-        "http://localhost:5000",         # Direct backend access
-        "http://127.0.0.1:5000",         # Direct backend access
+        "http://localhost:5000",         # Backend serving frontend
+        "http://127.0.0.1:5000",         # Backend serving frontend
         "https://mlima-adventures.onrender.com",  # Production
     ]
     
@@ -101,20 +147,6 @@ def create_app(config_class=Config):
     # -----------------------------
     # Health check and root endpoints
     # -----------------------------
-    @app.route('/')
-    def index():
-        """Root endpoint - redirects to health check."""
-        return jsonify({
-            "message": "Mlima Adventures API",
-            "version": "1.0.0",
-            "endpoints": {
-                "health": "/api/health",
-                "auth": "/api/auth",
-                "adventures": "/api/adventures",
-                "bookings": "/api/bookings"
-            }
-        })
-
     @app.route('/api/health')
     def health_check():
         """Health check endpoint."""
@@ -135,6 +167,28 @@ def create_app(config_class=Config):
             "message": "Bookings API is working!",
             "timestamp": os.path.getmtime(__file__)
         })
+
+    # -----------------------------
+    # Add this: Serve React frontend for all non-API routes
+    # -----------------------------
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def serve_frontend(path):
+        """Serve React frontend for all non-API routes."""
+        # Don't interfere with API routes
+        if path.startswith('api/'):
+            return jsonify({"error": "API route not found"}), 404
+        
+        # Check if the requested file exists
+        static_file_path = os.path.join(app.static_folder, path)
+        
+        if path and os.path.exists(static_file_path):
+            print(f"📁 Serving static file: {path}")
+            return send_from_directory(app.static_folder, path)
+        
+        # Serve index.html for all other routes (React Router will handle it)
+        print(f"📄 Serving index.html for path: {path}")
+        return send_from_directory(app.static_folder, 'index.html')
 
     # -----------------------------
     # Error handlers
