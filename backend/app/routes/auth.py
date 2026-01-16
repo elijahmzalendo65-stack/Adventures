@@ -1,22 +1,67 @@
 # app/routes/auth.py
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, make_response
 from sqlalchemy.exc import IntegrityError
+from flask_cors import cross_origin
 from ..extensions import db
 from ..models.user import User
 from ..utils.helpers import login_required, admin_required, validate_required_fields
 from sqlalchemy import or_
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 
+def add_cors_headers(response):
+    """Add CORS headers to response."""
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080", 
+        "http://localhost:5000",
+        "http://127.0.0.1:5000",
+        "https://mlima-adventures.onrender.com"
+    ]
+    
+    if origin in allowed_origins:
+        response.headers['Access-Control-Allow-Origin'] = origin
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, Accept'
+    response.headers['Access-Control-Expose-Headers'] = 'Set-Cookie'
+    return response
+
+
 # ----------------------------
-# REGISTER (FIXED - NO to_dict())
+# OPTIONS HANDLER FOR CORS PREFLIGHT
+# ----------------------------
+@auth_bp.route("/register", methods=["OPTIONS"])
+@auth_bp.route("/login", methods=["OPTIONS"])
+@auth_bp.route("/logout", methods=["OPTIONS"])
+@auth_bp.route("/check-auth", methods=["OPTIONS"])
+@auth_bp.route("/me", methods=["OPTIONS"])
+def handle_options():
+    """Handle CORS preflight requests."""
+    logger.debug(f"OPTIONS request for {request.path}")
+    response = make_response()
+    return add_cors_headers(response)
+
+
+# ----------------------------
+# REGISTER
 # ----------------------------
 @auth_bp.route("/register", methods=["POST"])
+@cross_origin(supports_credentials=True, origins=["http://localhost:8080", "http://127.0.0.1:8080"])
 def register():
     """Register a new user and automatically log them in."""
+    logger.debug(f"Register request from origin: {request.headers.get('Origin')}")
+    
     try:
         data = request.get_json() or {}
+        logger.debug(f"Register data: {data}")
 
         required_fields = ["username", "email", "password"]
         is_valid, error_message = validate_required_fields(data, required_fields)
@@ -50,9 +95,11 @@ def register():
         session.clear()
         session["user_id"] = user.id
         session.permanent = True
+        
+        logger.debug(f"User {user.id} registered and session set")
 
-        # ✅ FIXED: Return SIMPLE dictionary, NOT user.to_dict()
-        return jsonify({
+        # Return response with CORS headers
+        response_data = {
             "message": "Registration successful",
             "user": {
                 "id": user.id,
@@ -62,29 +109,39 @@ def register():
                 "is_admin": user.is_admin,
                 "created_at": user.created_at.isoformat() if user.created_at else None,
             }
-        }), 201
+        }
+        
+        response = jsonify(response_data)
+        response.status_code = 201
+        return add_cors_headers(response)
 
     except IntegrityError:
         db.session.rollback()
+        logger.error("Integrity error during registration")
         return jsonify({"message": "User already exists"}), 400
 
     except Exception as e:
         db.session.rollback()
-        # ✅ FIXED: Return simple error without exposing details
+        logger.error(f"Registration failed: {str(e)}")
         return jsonify({"message": "Registration failed"}), 500
 
 
 # ----------------------------
-# LOGIN (FIXED - Removed hardcoded "admin456")
+# LOGIN
 # ----------------------------
 @auth_bp.route("/login", methods=["POST"])
+@cross_origin(supports_credentials=True, origins=["http://localhost:8080", "http://127.0.0.1:8080"])
 def login():
     """
     Login using email OR username (case-insensitive for email).
     Session-based auth, admin supported.
     """
+    logger.debug(f"Login request from origin: {request.headers.get('Origin')}")
+    
     try:
         data = request.get_json() or {}
+        logger.debug(f"Login data: {data}")
+        
         identifier = data.get("email") or data.get("username")
         password = data.get("password")
 
@@ -94,7 +151,7 @@ def login():
         identifier = identifier.strip()
         email_identifier = identifier.lower()
 
-        # ✅ FIXED: Search by ACTUAL user input, not hardcoded "admin456"
+        # Search user
         user = User.query.filter(
             or_(
                 User.email == email_identifier,
@@ -103,15 +160,18 @@ def login():
         ).first()
 
         if not user or not user.check_password(password):
+            logger.warning(f"Failed login attempt for: {identifier}")
             return jsonify({"message": "Invalid credentials"}), 401
 
         # Login successful, start session
         session.clear()
         session["user_id"] = user.id
         session.permanent = True
+        
+        logger.debug(f"User {user.id} logged in, session: {session}")
 
-        # ✅ FIXED: Return SIMPLE dictionary
-        return jsonify({
+        # Return response
+        response_data = {
             "message": "Login successful",
             "user": {
                 "id": user.id,
@@ -121,9 +181,14 @@ def login():
                 "is_admin": user.is_admin,
                 "created_at": user.created_at.isoformat() if user.created_at else None,
             }
-        }), 200
+        }
+        
+        response = jsonify(response_data)
+        response.status_code = 200
+        return add_cors_headers(response)
 
     except Exception as e:
+        logger.error(f"Login failed: {str(e)}")
         return jsonify({"message": "Login failed"}), 500
 
 
@@ -132,27 +197,40 @@ def login():
 # ----------------------------
 @auth_bp.route("/logout", methods=["POST"])
 @login_required
+@cross_origin(supports_credentials=True)
 def logout():
+    """Logout user by clearing session."""
+    user_id = session.get("user_id")
+    logger.debug(f"Logout request from user {user_id}")
+    
     session.clear()
-    return jsonify({"message": "Logged out successfully"}), 200
+    
+    response = jsonify({"message": "Logged out successfully"})
+    return add_cors_headers(response)
 
 
 # ----------------------------
-# CHECK AUTH (FIXED - NO to_dict())
+# CHECK AUTH
 # ----------------------------
 @auth_bp.route("/check-auth", methods=["GET"])
+@cross_origin(supports_credentials=True, origins=["http://localhost:8080", "http://127.0.0.1:8080"])
 def check_auth():
+    """Check if user is authenticated."""
     user_id = session.get("user_id")
+    logger.debug(f"Check-auth request, session user_id: {user_id}")
+    
     if not user_id:
-        return jsonify({"authenticated": False}), 200
+        response = jsonify({"authenticated": False})
+        return add_cors_headers(response)
 
     user = User.query.get(user_id)
     if not user:
         session.clear()
-        return jsonify({"authenticated": False}), 200
+        response = jsonify({"authenticated": False})
+        return add_cors_headers(response)
 
-    # ✅ FIXED: Return SIMPLE dictionary
-    return jsonify({
+    # Return authenticated user
+    response_data = {
         "authenticated": True,
         "user": {
             "id": user.id,
@@ -162,18 +240,23 @@ def check_auth():
             "is_admin": user.is_admin,
             "created_at": user.created_at.isoformat() if user.created_at else None,
         }
-    }), 200
+    }
+    
+    response = jsonify(response_data)
+    return add_cors_headers(response)
 
 
 # ----------------------------
-# CURRENT USER PROFILE (FIXED - NO to_dict())
+# CURRENT USER PROFILE
 # ----------------------------
 @auth_bp.route("/me", methods=["GET"])
 @login_required
+@cross_origin(supports_credentials=True)
 def get_current_user():
+    """Get current user profile."""
     user = User.query.get(session["user_id"])
-    # ✅ FIXED: Return SIMPLE dictionary
-    return jsonify({
+    
+    response_data = {
         "user": {
             "id": user.id,
             "username": user.username,
@@ -182,14 +265,18 @@ def get_current_user():
             "is_admin": user.is_admin,
             "created_at": user.created_at.isoformat() if user.created_at else None,
         }
-    }), 200
+    }
+    
+    response = jsonify(response_data)
+    return add_cors_headers(response)
 
 
 # ----------------------------
-# ADMIN – VIEW ALL USERS (FIXED - NO to_dict())
+# ADMIN – VIEW ALL USERS
 # ----------------------------
 @auth_bp.route("/admin/users", methods=["GET"])
 @admin_required
+@cross_origin(supports_credentials=True)
 def admin_get_users():
     """
     Used by Admin Dashboard.
@@ -197,7 +284,6 @@ def admin_get_users():
     """
     users = User.query.order_by(User.created_at.desc()).all()
 
-    # ✅ FIXED: Return SIMPLE dictionaries
     users_data = []
     for user in users:
         users_data.append({
@@ -209,78 +295,41 @@ def admin_get_users():
             "created_at": user.created_at.isoformat() if user.created_at else None,
         })
 
-    return jsonify({
-        "users": users_data
-    }), 200
+    response_data = {"users": users_data}
+    response = jsonify(response_data)
+    return add_cors_headers(response)
 
 
 # ----------------------------
-# EMERGENCY REGISTRATION ENDPOINT
+# SIMPLE HEALTH CHECK
 # ----------------------------
-@auth_bp.route("/register-simple", methods=["POST"])
-def register_simple():
-    """
-    EMERGENCY registration endpoint that uses DIRECT SQL.
-    Bypasses all ORM relationship issues.
-    """
-    try:
-        data = request.get_json() or {}
-        
-        username = (data.get("username") or "").strip()
-        email = (data.get("email") or "").strip().lower()
-        password = data.get("password") or ""
-        phone_number = data.get("phone_number") or ""
-        
-        if not username or not email or not password:
-            return jsonify({"message": "Username, email and password are required"}), 400
-        
-        # DIRECT SQL - bypass ORM completely
-        from sqlalchemy import text
-        from werkzeug.security import generate_password_hash
-        
-        # 1. Check if user exists
-        check_sql = text("SELECT id FROM users WHERE username = :u OR email = :e")
-        existing = db.session.execute(check_sql, {"u": username, "e": email}).fetchone()
-        
-        if existing:
-            return jsonify({"message": "Username or email already exists"}), 400
-        
-        # 2. Create user with DIRECT SQL
-        password_hash = generate_password_hash(password)
-        
-        insert_sql = text("""
-            INSERT INTO users (username, email, password_hash, phone_number, created_at, updated_at)
-            VALUES (:username, :email, :password_hash, :phone, NOW(), NOW())
-            RETURNING id, username, email, phone_number, is_admin, created_at
-        """)
-        
-        result = db.session.execute(insert_sql, {
-            "username": username,
-            "email": email,
-            "password_hash": password_hash,
-            "phone": phone_number
-        })
-        db.session.commit()
-        
-        user_data = result.fetchone()
-        
-        # 3. Create session
-        session.clear()
-        session["user_id"] = user_data.id
-        session.permanent = True
-        
-        return jsonify({
-            "message": "Registration successful!",
-            "user": {
-                "id": user_data.id,
-                "username": user_data.username,
-                "email": user_data.email,
-                "phone_number": user_data.phone_number,
-                "is_admin": user_data.is_admin,
-                "created_at": user_data.created_at.isoformat() if user_data.created_at else None,
-            }
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"message": "Registration failed. Please try again."}), 500
+@auth_bp.route("/health", methods=["GET"])
+def health_check():
+    """Simple health check endpoint."""
+    response = jsonify({
+        "status": "healthy",
+        "service": "auth-service",
+        "timestamp": datetime.utcnow().isoformat()
+    })
+    return add_cors_headers(response)
+
+
+# ----------------------------
+# SESSION DEBUG ENDPOINT (Remove in production)
+# ----------------------------
+@auth_bp.route("/debug-session", methods=["GET"])
+def debug_session():
+    """Debug endpoint to check session state."""
+    debug_info = {
+        "session_id": session.get("_id", "No session ID"),
+        "user_id": session.get("user_id"),
+        "session_permanent": session.permanent,
+        "session_keys": list(session.keys()),
+        "request_origin": request.headers.get("Origin"),
+        "request_cookies": dict(request.cookies)
+    }
+    
+    logger.debug(f"Session debug: {debug_info}")
+    
+    response = jsonify(debug_info)
+    return add_cors_headers(response)

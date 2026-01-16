@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Users, Calendar, DollarSign, Search, LogOut } from "lucide-react";
-import axios from "axios";
+import { ArrowLeft, Users, Calendar, DollarSign, Search, LogOut, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,13 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/contexts/AuthContext"; // Import AuthContext
+import { useAuth } from "@/contexts/AuthContext";
 
 interface User {
   id: number;
   username: string;
   email: string;
   created_at: string;
+  is_admin?: boolean;
 }
 
 interface Booking {
@@ -26,17 +26,24 @@ interface Booking {
   number_of_people: number;
   total_amount: number;
   status: string;
+  booking_reference?: string;
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
 }
 
 interface DashboardStats {
   total_users: number;
   total_bookings: number;
   total_revenue: number;
+  recent_users?: number;
+  recent_bookings?: number;
+  recent_revenue?: number;
 }
 
 const Admin = () => {
   const navigate = useNavigate();
-  const { user, logout, fetchAdminStats, fetchAdminUsers, fetchAdminBookings } = useAuth(); // Use AuthContext
+  const { user, logout, fetchAdminStats, fetchAdminUsers, fetchAdminBookings } = useAuth();
 
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -45,17 +52,43 @@ const Admin = () => {
   const [userSearchTerm, setUserSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
+  const [retryCount, setRetryCount] = useState(0);
 
   // Check if user is admin
   useEffect(() => {
-    if (!user?.is_admin) {
-      console.log("❌ User is not admin, redirecting...");
-      navigate("/");
-    }
+    console.log("🔍 Admin component - Current user:", user);
+    
+    const checkAdminAccess = () => {
+      const currentUser = user || getUserFromLocalStorage();
+      const isAdmin = currentUser?.is_admin;
+      
+      console.log("👑 Admin check:", { 
+        hasUser: !!user, 
+        hasLocalStorageUser: !!currentUser,
+        isAdmin: isAdmin 
+      });
+      
+      if (!isAdmin) {
+        console.log("❌ User is not admin, redirecting to home");
+        navigate("/");
+      }
+    };
+    
+    checkAdminAccess();
   }, [user, navigate]);
 
+  // Helper to get user from localStorage
+  const getUserFromLocalStorage = (): User | null => {
+    try {
+      const storedUser = localStorage.getItem('user');
+      return storedUser ? JSON.parse(storedUser) : null;
+    } catch (error) {
+      return null;
+    }
+  };
+
   // ----------------------
-  // Fetch Dashboard Stats using AuthContext
+  // Fetch Dashboard Stats
   // ----------------------
   const fetchDashboard = async () => {
     try {
@@ -64,72 +97,98 @@ const Admin = () => {
       if (stats) {
         setDashboardStats(stats.dashboard);
         console.log("✅ Dashboard stats loaded:", stats.dashboard);
+      } else {
+        console.log("⚠️ No stats returned from API");
+        // Fallback: Calculate from local data
+        const fallbackStats = {
+          total_users: users.length,
+          total_bookings: bookings.length,
+          total_revenue: bookings.reduce((sum, b) => sum + (b.total_amount || 0), 0)
+        };
+        setDashboardStats(fallbackStats);
       }
     } catch (err) {
-      console.error("Failed to fetch dashboard stats", err);
-      setError("Failed to load dashboard statistics");
+      console.error("❌ Failed to fetch dashboard stats:", err);
+      // Fallback stats
+      const fallbackStats = {
+        total_users: users.length,
+        total_bookings: bookings.length,
+        total_revenue: bookings.reduce((sum, b) => sum + (b.total_amount || 0), 0)
+      };
+      setDashboardStats(fallbackStats);
     }
   };
 
   // ----------------------
-  // Fetch Users using AuthContext
+  // Fetch Users
   // ----------------------
   const fetchUsers = async () => {
     try {
       console.log("👥 Fetching admin users...");
       const adminUsers = await fetchAdminUsers();
-      setUsers(adminUsers);
-      console.log("✅ Users loaded:", adminUsers.length);
+      console.log("✅ Users received from API:", adminUsers);
+      setUsers(Array.isArray(adminUsers) ? adminUsers : []);
     } catch (err) {
-      console.error("Failed to fetch users", err);
-      setError("Failed to load users");
+      console.error("❌ Failed to fetch users:", err);
+      setUsers([]);
     }
   };
 
   // ----------------------
-  // Fetch Bookings using AuthContext
+  // Fetch Bookings
   // ----------------------
   const fetchBookings = async () => {
     try {
       console.log("📋 Fetching admin bookings...");
       const adminBookings = await fetchAdminBookings();
-      setBookings(adminBookings);
-      console.log("✅ Bookings loaded:", adminBookings.length);
+      console.log("✅ Bookings received from API:", adminBookings);
+      setBookings(Array.isArray(adminBookings) ? adminBookings : []);
     } catch (err) {
-      console.error("Failed to fetch bookings", err);
-      setError("Failed to load bookings");
+      console.error("❌ Failed to fetch bookings:", err);
+      setBookings([]);
     }
   };
 
   // ----------------------
   // Fetch all data on load
   // ----------------------
-  useEffect(() => {
-    const loadData = async () => {
-      if (!user?.is_admin) return;
-      
-      setLoading(true);
-      setError("");
-      
-      try {
-        await Promise.all([
-          fetchDashboard(),
-          fetchUsers(),
-          fetchBookings()
-        ]);
-      } catch (err) {
-        console.error("Error loading admin data:", err);
-        setError("Failed to load admin data. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    };
+  const loadData = async () => {
+    const currentUser = user || getUserFromLocalStorage();
     
+    if (!currentUser?.is_admin) {
+      console.log("⚠️ Skipping data load - user not admin");
+      return;
+    }
+    
+    setLoading(true);
+    setError("");
+    
+    console.log("🔄 Loading admin data...");
+    
+    try {
+      await Promise.all([
+        fetchUsers(),
+        fetchBookings()
+      ]);
+      
+      // Stats depend on users and bookings
+      await fetchDashboard();
+      
+      console.log("✅ All admin data loaded successfully");
+    } catch (err) {
+      console.error("❌ Error loading admin data:", err);
+      setError("Failed to load admin data. Please check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadData();
-  }, [user]); // Run when user changes
+  }, [user, retryCount]); // Re-run when user changes or retry is clicked
 
   // ----------------------
-  // Logout using AuthContext
+  // Logout
   // ----------------------
   const handleLogout = async () => {
     try {
@@ -143,12 +202,20 @@ const Admin = () => {
   };
 
   // ----------------------
+  // Retry loading data
+  // ----------------------
+  const handleRetry = () => {
+    setRetryCount(prev => prev + 1);
+  };
+
+  // ----------------------
   // Filtered Data
   // ----------------------
   const filteredBookings = bookings.filter(
     (booking) =>
-      booking.user?.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      booking.adventure?.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      booking.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      booking.customer_email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      booking.booking_reference?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       booking.id.toString().includes(searchTerm)
   );
 
@@ -159,21 +226,35 @@ const Admin = () => {
   );
 
   const getStatusColor = (status: string) => {
-    switch (status) {
+    switch (status?.toLowerCase()) {
       case "confirmed":
+      case "completed":
+      case "paid":
         return "bg-green-500/10 text-green-700 dark:text-green-400";
       case "pending":
+      case "awaiting_payment":
         return "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400";
-      case "completed":
-        return "bg-blue-500/10 text-blue-700 dark:text-blue-400";
       case "cancelled":
+      case "refunded":
         return "bg-red-500/10 text-red-700 dark:text-red-400";
       default:
         return "bg-gray-500/10 text-gray-700 dark:text-gray-400";
     }
   };
 
-  if (!user?.is_admin) {
+  const getStatusText = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "awaiting_payment": return "Pending Payment";
+      case "completed": return "Completed";
+      case "confirmed": return "Confirmed";
+      case "paid": return "Paid";
+      case "cancelled": return "Cancelled";
+      case "refunded": return "Refunded";
+      default: return status || "Pending";
+    }
+  };
+
+  if (!user?.is_admin && !getUserFromLocalStorage()?.is_admin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Card className="w-full max-w-md">
@@ -198,6 +279,9 @@ const Admin = () => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
           <p className="mt-4 text-muted-foreground">Loading admin dashboard...</p>
+          <p className="text-sm text-gray-500 mt-2">
+            Fetching data from: localhost:5000
+          </p>
         </div>
       </div>
     );
@@ -218,31 +302,86 @@ const Admin = () => {
             <div>
               <h1 className="text-2xl font-bold text-primary">Admin Dashboard</h1>
               <p className="text-sm text-muted-foreground">
-                Welcome, {user?.username} 
-                {user?.is_admin && <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-1 rounded">Admin</span>}
+                Welcome, {user?.username || getUserFromLocalStorage()?.username} 
+                <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-1 rounded">Admin</span>
               </p>
             </div>
           </div>
-          <Button variant="outline" onClick={handleLogout}>
-            <LogOut className="mr-2 h-4 w-4" />
-            Logout
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleRetry}
+              className="flex items-center gap-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
+            <Button variant="outline" onClick={handleLogout}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Logout
+            </Button>
+          </div>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        {/* Debug Info - Remove in production */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-gray-800">Debug Info:</h3>
+                <div className="text-sm text-gray-600 space-y-1 mt-1">
+                  <p>API Base: localhost:5000 (check AuthContext.tsx)</p>
+                  <p>Users loaded: {users.length}</p>
+                  <p>Bookings loaded: {bookings.length}</p>
+                  <p>User is admin: {user?.is_admin ? 'Yes' : 'No'}</p>
+                  <p>Session active: {user ? 'Yes' : 'No'}</p>
+                </div>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => console.log({
+                  users, 
+                  bookings, 
+                  dashboardStats, 
+                  authUser: user,
+                  localStorageUser: getUserFromLocalStorage()
+                })}
+              >
+                Log Data
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Error Display */}
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-700">{error}</p>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => window.location.reload()}
-              className="mt-2"
-            >
-              Retry
-            </Button>
+            <p className="text-red-700 font-medium">{error}</p>
+            <p className="text-sm text-red-600 mt-1">
+              Check that Flask is running on localhost:5000 and you're logged in as admin.
+            </p>
+            <div className="flex gap-2 mt-3">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleRetry}
+                className="flex items-center gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Retry
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => window.location.reload()}
+              >
+                Reload Page
+              </Button>
+            </div>
           </div>
         )}
 
@@ -254,7 +393,8 @@ const Admin = () => {
               <Users className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{dashboardStats?.total_users ?? 0}</div>
+              <div className="text-2xl font-bold">{dashboardStats?.total_users || users.length}</div>
+              <p className="text-xs text-muted-foreground mt-1">Registered users</p>
             </CardContent>
           </Card>
 
@@ -264,19 +404,21 @@ const Admin = () => {
               <Calendar className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{dashboardStats?.total_bookings ?? 0}</div>
+              <div className="text-2xl font-bold">{dashboardStats?.total_bookings || bookings.length}</div>
+              <p className="text-xs text-muted-foreground mt-1">All time bookings</p>
             </CardContent>
           </Card>
 
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader className="flex items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue (KSh)</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue</CardTitle>
               <DollarSign className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {dashboardStats?.total_revenue?.toLocaleString() ?? 0}
+                KSh {(dashboardStats?.total_revenue || bookings.reduce((sum, b) => sum + (b.total_amount || 0), 0)).toLocaleString()}
               </div>
+              <p className="text-xs text-muted-foreground mt-1">Lifetime revenue</p>
             </CardContent>
           </Card>
 
@@ -287,8 +429,11 @@ const Admin = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {bookings.filter(b => b.status === 'confirmed' || b.status === 'pending').length}
+                {bookings.filter(b => 
+                  ['confirmed', 'pending', 'awaiting_payment'].includes(b.status?.toLowerCase())
+                ).length}
               </div>
+              <p className="text-xs text-muted-foreground mt-1">Pending/Confirmed</p>
             </CardContent>
           </Card>
         </div>
@@ -325,12 +470,12 @@ const Admin = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Booking ID</TableHead>
+                        <TableHead>ID</TableHead>
+                        <TableHead>Reference</TableHead>
                         <TableHead>Customer</TableHead>
-                        <TableHead>Adventure</TableHead>
                         <TableHead>Date</TableHead>
                         <TableHead>Guests</TableHead>
-                        <TableHead>Amount (KSh)</TableHead>
+                        <TableHead>Amount</TableHead>
                         <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -338,9 +483,18 @@ const Admin = () => {
                       {filteredBookings.length > 0 ? (
                         filteredBookings.map((booking) => (
                           <TableRow key={booking.id}>
-                            <TableCell className="font-medium">{booking.id}</TableCell>
-                            <TableCell>{booking.user?.username || "Unknown"}</TableCell>
-                            <TableCell>{booking.adventure?.title || "Unknown Adventure"}</TableCell>
+                            <TableCell className="font-mono text-xs">{booking.id}</TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {booking.booking_reference || `BKG-${booking.id}`}
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{booking.customer_name || booking.user?.username || "Unknown"}</div>
+                                {booking.customer_email && (
+                                  <div className="text-xs text-muted-foreground">{booking.customer_email}</div>
+                                )}
+                              </div>
+                            </TableCell>
                             <TableCell>
                               {booking.adventure_date ? (
                                 new Date(booking.adventure_date).toLocaleDateString("en-GB", {
@@ -353,18 +507,26 @@ const Admin = () => {
                               )}
                             </TableCell>
                             <TableCell>{booking.number_of_people || 1}</TableCell>
-                            <TableCell>{(booking.total_amount || 0).toLocaleString()}</TableCell>
+                            <TableCell>KSh {(booking.total_amount || 0).toLocaleString()}</TableCell>
                             <TableCell>
                               <Badge variant="secondary" className={getStatusColor(booking.status)}>
-                                {booking.status || "pending"}
+                                {getStatusText(booking.status)}
                               </Badge>
                             </TableCell>
                           </TableRow>
                         ))
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground">
-                            {bookings.length === 0 ? "No bookings yet" : "No matching bookings found"}
+                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                            {bookings.length === 0 ? (
+                              <div className="flex flex-col items-center gap-2">
+                                <Calendar className="h-8 w-8 text-gray-400" />
+                                <p>No bookings found</p>
+                                <p className="text-sm">Bookings will appear here once created</p>
+                              </div>
+                            ) : (
+                              "No matching bookings found"
+                            )}
                           </TableCell>
                         </TableRow>
                       )}
@@ -396,19 +558,27 @@ const Admin = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>User ID</TableHead>
+                        <TableHead>ID</TableHead>
                         <TableHead>Username</TableHead>
                         <TableHead>Email</TableHead>
-                        <TableHead>Joined Date</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Joined</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredUsers.length > 0 ? (
                         filteredUsers.map((user) => (
                           <TableRow key={user.id}>
-                            <TableCell className="font-medium">{user.id}</TableCell>
-                            <TableCell>{user.username}</TableCell>
+                            <TableCell className="font-mono text-xs">{user.id}</TableCell>
+                            <TableCell>
+                              <div className="font-medium">{user.username}</div>
+                            </TableCell>
                             <TableCell>{user.email}</TableCell>
+                            <TableCell>
+                              <Badge variant={user.is_admin ? "default" : "secondary"}>
+                                {user.is_admin ? "Admin" : "User"}
+                              </Badge>
+                            </TableCell>
                             <TableCell>
                               {user.created_at ? (
                                 new Date(user.created_at).toLocaleDateString("en-GB", {
@@ -424,8 +594,16 @@ const Admin = () => {
                         ))
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={4} className="text-center text-muted-foreground">
-                            {users.length === 0 ? "No users yet" : "No matching users found"}
+                          <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                            {users.length === 0 ? (
+                              <div className="flex flex-col items-center gap-2">
+                                <Users className="h-8 w-8 text-gray-400" />
+                                <p>No users found</p>
+                                <p className="text-sm">Users will appear here after registration</p>
+                              </div>
+                            ) : (
+                              "No matching users found"
+                            )}
                           </TableCell>
                         </TableRow>
                       )}

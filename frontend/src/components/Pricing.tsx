@@ -140,19 +140,19 @@ const Pricing = () => {
     // Refresh bookings after new booking
     setTimeout(() => {
       loadUserBookings();
-    }, 2000); // Wait 2 seconds for server to process
+    }, 2000);
   };
 
   // Fetch user bookings using AuthContext
   const loadUserBookings = async () => {
     try {
-      console.log("🔄 Loading user bookings...");
+      console.log("🔄 Pricing Component: Loading user bookings...");
       
       // Check both AuthContext and localStorage for authentication
       const currentUser = user || checkLocalStorageUser();
       const hasAuth = isAuthenticated || currentUser;
       
-      console.log("👤 Auth state:", { 
+      console.log("👤 Pricing - Auth state:", { 
         isAuthenticated,
         hasAuthContextUser: !!user,
         hasLocalStorageUser: !!currentUser,
@@ -169,12 +169,15 @@ const Pricing = () => {
       setLoadingBookings(true);
       setBookingError("");
       
-      // Try using AuthContext
-      console.log("📋 Calling fetchUserBookings...");
+      console.log("📋 Calling fetchUserBookings from AuthContext...");
       const response = await fetchUserBookings();
-      console.log("📊 Received response from fetchUserBookings:", response);
+      console.log("📊 Received response from fetchUserBookings:", {
+        type: typeof response,
+        isArray: Array.isArray(response),
+        response: response
+      });
       
-      // Handle the response from updated AuthContext
+      // Handle the response
       let bookingsData: any[] = [];
       
       if (Array.isArray(response)) {
@@ -186,18 +189,20 @@ const Pricing = () => {
           bookingsData = (response as any).bookings;
         } else if (Array.isArray((response as any).data)) {
           bookingsData = (response as any).data;
+        } else {
+          console.warn("⚠️ Unexpected response format:", response);
         }
       }
       
-      console.log("📋 Final bookings data:", bookingsData);
+      console.log("📋 Final bookings data to process:", bookingsData);
 
       // Safely map the bookings data
       const userBookings: BookingStatus[] = bookingsData
         .filter((booking: any) => booking != null)
         .map((booking: ApiBooking) => {
-          console.log("🔍 Processing booking:", booking);
+          console.log("🔍 Processing booking item:", booking);
           
-          // Extract adventure ID from different possible locations
+          // Extract adventure ID
           let adventureId = 0;
           if (booking.adventure_id) {
             adventureId = booking.adventure_id;
@@ -240,7 +245,7 @@ const Pricing = () => {
         })
         .filter((booking: BookingStatus) => booking.bookingId > 0 && booking.adventureId > 0);
 
-      console.log("✅ Processed bookings:", userBookings);
+      console.log("✅ Final processed bookings:", userBookings);
       setBookingStatuses(userBookings);
       
       if (userBookings.length === 0 && bookingsData.length === 0) {
@@ -248,19 +253,24 @@ const Pricing = () => {
         setBookingError(""); // Clear error if just no bookings
       }
     } catch (err: any) {
-      console.error("❌ Failed to fetch user bookings:", err);
+      console.error("❌ Pricing: Failed to fetch user bookings:", {
+        error: err,
+        message: err.message,
+        stack: err.stack
+      });
       
       // Handle specific error cases
-      if (err.message?.includes("Unauthorized") || err.status === 401) {
+      if (err.message?.includes("Unauthorized") || err.message?.includes("401")) {
         setBookingError("Please log in to view your bookings.");
       } else if (err.message?.includes("404") || err.message?.includes("Not Found")) {
-        // This is expected if booking endpoints don't exist yet
         console.log("📝 Booking endpoints not yet implemented on server");
-        setBookingError(""); // Don't show error for missing endpoints
-      } else if (err.message?.includes("Network")) {
-        setBookingError("Network error. Please check your connection.");
+        setBookingError("Booking feature coming soon!"); 
+      } else if (err.message?.includes("Network") || err.message?.includes("Failed to fetch")) {
+        setBookingError("Cannot connect to server. Check if Flask is running on localhost:5000");
+      } else if (err.message?.includes("CORS")) {
+        setBookingError("CORS error. Check backend CORS configuration.");
       } else {
-        setBookingError(""); // Clear error on other failures
+        setBookingError(""); 
       }
     } finally {
       setLoadingBookings(false);
@@ -269,6 +279,9 @@ const Pricing = () => {
 
   useEffect(() => {
     console.log("🏁 Pricing component mounted or user changed");
+    console.log("👤 Current user from AuthContext:", user);
+    console.log("🔐 Is authenticated:", isAuthenticated);
+    
     loadUserBookings();
 
     // Only poll if user is logged in
@@ -277,13 +290,13 @@ const Pricing = () => {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isAuthenticated, user]); // Re-run when auth state changes
+  }, [isAuthenticated, user]);
 
   // Get latest booking status for a given adventure
   const getBookingStatus = (adventureId: number) => {
     const bookings = bookingStatuses
       .filter((b) => b.adventureId === adventureId)
-      .sort((a, b) => b.bookingId - a.bookingId); // latest booking first
+      .sort((a, b) => b.bookingId - a.bookingId);
     return bookings.length > 0 ? bookings[0].status : null;
   };
 
@@ -292,6 +305,13 @@ const Pricing = () => {
     // Check both AuthContext and localStorage
     const currentUser = user || checkLocalStorageUser();
     const hasAuth = isAuthenticated || currentUser;
+    
+    console.log("🔐 Check before booking:", {
+      hasAuth,
+      currentUser,
+      pkgId: pkg.id,
+      pkgName: pkg.name
+    });
     
     if (!hasAuth) {
       alert("Please login to book an adventure!");
@@ -327,12 +347,25 @@ const Pricing = () => {
             )}
           </div>
 
+          {/* Debug info for development */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mb-8 p-4 bg-gray-50 border border-gray-200 rounded-lg max-w-2xl mx-auto">
+              <h3 className="font-semibold text-gray-800 mb-2">Debug Info:</h3>
+              <div className="text-sm space-y-1">
+                <p><span className="font-medium">Auth Status:</span> {isAuthenticated ? "✅ Logged In" : "❌ Not Logged In"}</p>
+                <p><span className="font-medium">LocalStorage User:</span> {checkLocalStorageUser() ? "✅ Present" : "❌ Absent"}</p>
+                <p><span className="font-medium">Bookings Loaded:</span> {bookingStatuses.length}</p>
+                <p><span className="font-medium">API Target:</span> localhost:5000 (check AuthContext)</p>
+              </div>
+            </div>
+          )}
+
           {bookingError && (
             <div className="text-center mb-8">
               <div className="inline-block p-4 bg-red-50 border border-red-200 rounded-lg max-w-md mx-auto">
-                <p className="text-red-700">{bookingError}</p>
+                <p className="text-red-700 font-medium">{bookingError}</p>
                 <p className="text-sm text-red-600 mt-1">
-                  You can still proceed with new bookings.
+                  Check that Flask is running on localhost:5000
                 </p>
               </div>
             </div>
@@ -340,8 +373,10 @@ const Pricing = () => {
 
           {loadingBookings && canBook() ? (
             <div className="text-center mb-8">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-              <p className="text-muted-foreground mt-2">Loading your bookings...</p>
+              <div className="inline-flex items-center gap-2">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                <p className="text-muted-foreground">Loading your bookings...</p>
+              </div>
             </div>
           ) : !canBook() ? (
             <div className="text-center mb-8 p-4 bg-blue-50 border border-blue-200 rounded-lg max-w-md mx-auto">

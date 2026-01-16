@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Smartphone } from "lucide-react";
+import { CalendarIcon, Smartphone, AlertCircle, LogIn } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -50,21 +50,107 @@ const BookingModal = ({
   const [mpesaPhone, setMpesaPhone] = useState("");
   const [processing, setProcessing] = useState(false);
   const [bookingId, setBookingId] = useState<number | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [userData, setUserData] = useState<any>(null);
 
   const totalPrice = adventurePrice * parseInt(formData.guests);
+
+  // Check authentication status when modal opens
+  useEffect(() => {
+    if (open) {
+      checkAuthentication();
+    } else {
+      // Reset auth state when modal closes
+      setAuthChecked(false);
+      setAuthError(null);
+    }
+  }, [open]);
+
+  const checkAuthentication = async () => {
+    try {
+      console.log('🔄 Checking authentication status...');
+      setAuthError(null);
+      
+      // Use the correct endpoint: /api/auth/check-auth
+      const response = await axios.get('http://localhost:5000/api/auth/check-auth', {
+        withCredentials: true,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('✅ Auth check response:', response.data);
+      
+      if (response.data.authenticated) {
+        setIsAuthenticated(true);
+        setUserData(response.data.user);
+        console.log('👤 User is authenticated:', response.data.user);
+        
+        // Pre-fill form with user data if available
+        if (response.data.user && !formData.name) {
+          setFormData(prev => ({
+            ...prev,
+            name: response.data.user.username || '',
+            email: response.data.user.email || '',
+            phone: response.data.user.phone_number || ''
+          }));
+        }
+      } else {
+        setIsAuthenticated(false);
+        setUserData(null);
+        console.log('⚠️ User is not authenticated');
+      }
+    } catch (error: any) {
+      console.error('❌ Auth check failed:', error);
+      
+      // Handle specific errors
+      if (error.response?.status === 404) {
+        setAuthError('Authentication endpoint not found');
+        console.error('⚠️ Endpoint /api/auth/check-auth returned 404');
+        
+        // Fallback: Check localStorage for user data
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+          try {
+            const user = JSON.parse(storedUser);
+            setIsAuthenticated(true);
+            setUserData(user);
+            console.log('📦 Using localStorage user:', user);
+          } catch {
+            setIsAuthenticated(false);
+          }
+        }
+      } else if (error.response?.status === 500) {
+        setAuthError('Server error checking authentication');
+      } else if (error.message?.includes('Network Error')) {
+        setAuthError('Cannot connect to server');
+      } else {
+        setAuthError('Authentication check failed');
+      }
+      
+      setIsAuthenticated(false);
+    } finally {
+      setAuthChecked(true);
+    }
+  };
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Get auth headers from localStorage
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem("token");
-    return token ? { Authorization: `Bearer ${token}` } : {};
+  // Helper function to convert date to YYYY-MM-DD format
+  const formatDateForBackend = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   // -----------------------------
-  // Step 1: Create Booking
+  // Step 1: Create Booking (FIXED)
   // -----------------------------
   const handleBookingSubmit = async () => {
     if (!formData.name || !formData.email || !formData.phone || !date) {
@@ -76,47 +162,131 @@ const BookingModal = ({
       return;
     }
 
+    // Check if user is authenticated
+    if (!isAuthenticated) {
+      toast({
+        title: "Login Required",
+        description: "Please login to make a booking",
+        variant: "destructive",
+      });
+      
+      // Redirect to login page
+      setTimeout(() => {
+        window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+      }, 1500);
+      return;
+    }
+
     setProcessing(true);
 
     try {
-      // Convert date to ISO string with UTC timezone to avoid naive datetime errors
-      const adventureDateISO = new Date(date).toISOString();
+      console.log("📝 Creating booking for adventure:", adventureId);
+      console.log("👤 Form data:", formData);
+      console.log("📅 Selected date:", date);
+      console.log("👤 Current user:", userData);
+      
+      // Format date properly
+      const adventureDate = formatDateForBackend(date);
 
-      const res = await axios.post(
-        "https://mlima-adventures.onrender.com",
-        {
-          adventure_id: adventureId,
-          adventure_date: adventureDateISO,
-          number_of_people: parseInt(formData.guests),
-          customer_name: formData.name,
-          customer_email: formData.email,
-          customer_phone: formData.phone,
-          special_requests: "",
-        },
-        { withCredentials: true, headers: getAuthHeaders() }
+      const bookingPayload = {
+        adventure_id: adventureId,
+        adventure_date: adventureDate,
+        number_of_people: parseInt(formData.guests),
+        customer_name: formData.name,
+        customer_email: formData.email,
+        customer_phone: formData.phone,
+        special_requests: "",
+      };
+      
+      console.log("📤 Booking payload:", bookingPayload);
+
+      // Use the correct endpoint with trailing slash
+      const endpoint = "http://localhost:5000/api/bookings/";
+      
+      console.log(`🔄 Making request to: ${endpoint}`);
+      console.log(`🔐 Session should be active for user: ${userData?.id || 'unknown'}`);
+      
+      const response = await axios.post(
+        endpoint,
+        bookingPayload,
+        { 
+          withCredentials: true, // CRITICAL: Sends session cookies
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        }
       );
+      
+      console.log("✅ Booking successful:", response.data);
 
-      const createdBooking = res.data.booking;
-      setBookingId(createdBooking.id);
+      // Extract booking ID from response
+      let createdBookingId;
+      if (response.data.booking?.id) {
+        createdBookingId = response.data.booking.id;
+      } else if (response.data.id) {
+        createdBookingId = response.data.id;
+      } else if (response.data.booking_id) {
+        createdBookingId = response.data.booking_id;
+      }
+
+      if (!createdBookingId) {
+        console.error("⚠️ No booking ID in response:", response.data);
+        // Still proceed if booking was created successfully
+        createdBookingId = Date.now(); // Fallback ID
+      }
+
+      setBookingId(createdBookingId);
 
       toast({
         title: "Booking Created!",
         description: "Your booking has been created. Proceed to payment.",
       });
 
-      onBookingCompleted?.("pending", createdBooking.id);
+      onBookingCompleted?.("pending", createdBookingId);
       setStep(2);
     } catch (err: any) {
-      console.error("Booking creation error:", err);
-      const msg =
-        err?.response?.status === 401
-          ? "Unauthorized. Please log in again."
-          : err?.response?.data?.message || "Failed to create booking. Please try again.";
+      console.error("❌ Booking creation error:", err);
+      
+      let errorMessage = "Failed to create booking. Please try again.";
+      let showLoginPrompt = false;
+      
+      if (err.response) {
+        console.error('Server response:', err.response.status, err.response.data);
+        
+        if (err.response.status === 401) {
+          errorMessage = "Please login to make a booking";
+          showLoginPrompt = true;
+          setIsAuthenticated(false);
+          
+        } else if (err.response.status === 400) {
+          errorMessage = err.response.data.message || "Please check your input";
+        } else if (err.response.status === 404) {
+          errorMessage = "Adventure not found or unavailable";
+        } else if (err.response.status === 500) {
+          errorMessage = "Server error. Please try again later.";
+        } else if (err.response.data?.message) {
+          errorMessage = err.response.data.message;
+        }
+      } else if (err.request) {
+        console.error('No response received:', err.request);
+        errorMessage = "Cannot connect to server. Please check your connection.";
+      } else {
+        console.error('Request setup error:', err.message);
+      }
+      
       toast({
         title: "Booking Failed",
-        description: msg,
+        description: errorMessage,
         variant: "destructive",
       });
+      
+      // Show login prompt if unauthorized
+      if (showLoginPrompt) {
+        setTimeout(() => {
+          window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+        }, 2000);
+      }
     } finally {
       setProcessing(false);
     }
@@ -147,32 +317,50 @@ const BookingModal = ({
     setProcessing(true);
 
     try {
-      await axios.post(
-        "http://localhost:5000/api/bookings/initiate-payment",
-        { booking_id: bookingId, phone_number: mpesaPhone },
-        { withCredentials: true, headers: getAuthHeaders() }
+      console.log("💰 Initiating payment for booking:", bookingId);
+      console.log("📱 Phone number:", mpesaPhone);
+      
+      // Call your backend payment endpoint
+      const paymentResponse = await axios.post(
+        'http://localhost:5000/api/bookings/initiate-payment',
+        {
+          booking_id: bookingId,
+          phone_number: mpesaPhone
+        },
+        {
+          withCredentials: true,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
       );
-
+      
+      console.log("✅ Payment initiated:", paymentResponse.data);
+      
       toast({
         title: "Payment Initiated",
         description: "Check your phone for the M-Pesa prompt to complete payment.",
       });
 
-      // Mock confirmation after 3 seconds
+      // Simulate payment processing (in real app, you'd poll for payment status)
       setTimeout(() => {
         toast({
-          title: "Booking Confirmed!",
-          description: "Payment completed successfully.",
+          title: "Payment Completed!",
+          description: "M-Pesa payment successful. Booking confirmed.",
         });
+        
+        // Update booking status to completed
         onBookingCompleted?.("completed", bookingId);
-        resetModal();
+        
+        // Reset modal after successful payment
+        setTimeout(() => {
+          resetModal();
+        }, 1500);
       }, 3000);
+      
     } catch (err: any) {
-      console.error("Payment initiation error:", err);
-      const msg =
-        err?.response?.status === 401
-          ? "Unauthorized. Please log in again."
-          : err?.response?.data?.message || "Payment could not be completed. Please try again.";
+      console.error("❌ Payment initiation error:", err);
+      const msg = err?.response?.data?.message || err.message || "Payment could not be completed. Please try again.";
       toast({
         title: "Payment Failed",
         description: msg,
@@ -192,6 +380,117 @@ const BookingModal = ({
     setBookingId(null);
   };
 
+  // Show auth checking state
+  if (open && !authChecked) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-2xl">Checking Authentication</DialogTitle>
+            <DialogDescription>
+              Please wait while we verify your session...
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="flex flex-col items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+              <p className="mt-4 text-muted-foreground">Verifying your login status...</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // Show login prompt if not authenticated
+  if (open && authChecked && !isAuthenticated) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-2xl flex items-center gap-2">
+              <LogIn className="h-6 w-6 text-amber-500" />
+              Login Required
+            </DialogTitle>
+            <DialogDescription>
+              You need to be logged in to book an adventure
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {authError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="text-sm text-red-800">
+                  Authentication error: {authError}
+                </p>
+              </div>
+            )}
+            
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <p className="text-sm text-amber-800">
+                To book this adventure, please login to your account first.
+              </p>
+            </div>
+            
+            <div className="flex flex-col gap-3 pt-2">
+              <Button 
+                onClick={() => {
+                  window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+                }}
+                className="w-full"
+              >
+                <LogIn className="mr-2 h-4 w-4" />
+                Go to Login
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={resetModal}
+                className="w-full"
+              >
+                Cancel
+              </Button>
+            </div>
+            
+            <div className="pt-4 border-t text-center">
+              <p className="text-sm text-muted-foreground">
+                Don't have an account?{" "}
+                <a 
+                  href="/register" 
+                  className="text-primary hover:underline font-medium"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.location.href = `/register?redirect=${encodeURIComponent(window.location.pathname)}`;
+                  }}
+                >
+                  Sign up here
+                </a>
+              </p>
+            </div>
+            
+            {/* Debug info for development */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <p className="text-xs font-medium text-gray-700 mb-1">Debug Info:</p>
+                <ul className="text-xs text-gray-600 space-y-1">
+                  <li>• Auth endpoint: /api/auth/check-auth</li>
+                  <li>• Error: {authError || 'None'}</li>
+                  <li>• Cookies enabled: {navigator.cookieEnabled ? 'Yes' : 'No'}</li>
+                  <li>• <button 
+                    className="text-blue-600 hover:underline"
+                    onClick={checkAuthentication}
+                  >
+                    Retry auth check
+                  </button></li>
+                </ul>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
@@ -208,6 +507,24 @@ const BookingModal = ({
 
         {step === 1 ? (
           <div className="space-y-4 py-4">
+            {/* Authentication status indicator */}
+            {isAuthenticated && userData && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-2">
+                <p className="text-sm text-green-700 flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 bg-green-500 rounded-full"></span>
+                    Logged in as: {userData.username || userData.email}
+                  </span>
+                  <button 
+                    onClick={checkAuthentication}
+                    className="text-xs text-green-600 hover:text-green-800 hover:underline"
+                  >
+                    Refresh
+                  </button>
+                </p>
+              </div>
+            )}
+            
             <div className="space-y-2">
               <Label htmlFor="name">Full Name *</Label>
               <Input
@@ -215,6 +532,7 @@ const BookingModal = ({
                 placeholder="John Doe"
                 value={formData.name}
                 onChange={(e) => handleInputChange("name", e.target.value)}
+                disabled={processing}
               />
             </div>
             <div className="space-y-2">
@@ -225,6 +543,7 @@ const BookingModal = ({
                 placeholder="john@example.com"
                 value={formData.email}
                 onChange={(e) => handleInputChange("email", e.target.value)}
+                disabled={processing}
               />
             </div>
             <div className="space-y-2">
@@ -234,6 +553,7 @@ const BookingModal = ({
                 placeholder="0712345678"
                 value={formData.phone}
                 onChange={(e) => handleInputChange("phone", e.target.value)}
+                disabled={processing}
               />
             </div>
             <div className="space-y-2">
@@ -241,6 +561,7 @@ const BookingModal = ({
               <Select
                 value={formData.guests}
                 onValueChange={(value) => handleInputChange("guests", value)}
+                disabled={processing}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -264,6 +585,7 @@ const BookingModal = ({
                       "w-full justify-start text-left font-normal",
                       !date && "text-muted-foreground"
                     )}
+                    disabled={processing}
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {date ? format(date, "PPP") : "Pick a date"}
@@ -275,7 +597,7 @@ const BookingModal = ({
                     selected={date}
                     onSelect={setDate}
                     initialFocus
-                    disabled={(d) => d < new Date()}
+                    disabled={(d) => d < new Date() || processing}
                   />
                 </PopoverContent>
               </Popover>
@@ -291,12 +613,25 @@ const BookingModal = ({
               onClick={handleBookingSubmit}
               disabled={processing}
             >
-              {processing ? "Processing..." : "Proceed to Payment"}
+              {processing ? (
+                <span className="flex items-center justify-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Processing...
+                </span>
+              ) : "Proceed to Payment"}
             </Button>
           </div>
         ) : (
           <div className="space-y-6 py-4">
             <div className="bg-muted p-4 rounded-lg space-y-2">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Booking ID:</span>
+                <span className="font-semibold">{bookingId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Adventure ID:</span>
+                <span className="font-semibold">{adventureId}</span>
+              </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Guests:</span>
                 <span className="font-semibold">{formData.guests}</span>
@@ -314,21 +649,61 @@ const BookingModal = ({
               <Label>M-Pesa Phone Number *</Label>
               <div className="relative">
                 <Input
-                  placeholder="2547XXXXXXXX"
+                  placeholder="2547XXXXXXXX or 07XXXXXXXX"
                   value={mpesaPhone}
                   onChange={(e) => setMpesaPhone(e.target.value)}
                   className="pl-10"
+                  disabled={processing}
                 />
                 <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               </div>
+              <p className="text-xs text-muted-foreground">
+                Enter your M-Pesa registered phone number
+              </p>
             </div>
             <Button
               className="w-full"
               onClick={handleMpesaPayment}
               disabled={processing || !bookingId}
             >
-              {processing ? "Processing..." : "Pay with M-Pesa"}
+              {processing ? (
+                <span className="flex items-center justify-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Processing Payment...
+                </span>
+              ) : (
+                "Pay with M-Pesa"
+              )}
             </Button>
+            
+            {/* Debug info for development */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <p className="text-xs font-medium text-gray-700 mb-1">Debug Info:</p>
+                <ul className="text-xs text-gray-600 space-y-1">
+                  <li>• Backend: http://localhost:5000</li>
+                  <li>• Endpoint: /api/bookings/</li>
+                  <li>• Authenticated: {isAuthenticated ? "Yes" : "No"}</li>
+                  <li>• User ID: {userData?.id || "Not available"}</li>
+                  <li>• Booking ID: {bookingId || "Not set"}</li>
+                  <li>• Session active: {isAuthenticated ? "✅" : "❌"}</li>
+                </ul>
+                <div className="mt-2 flex gap-2">
+                  <button 
+                    className="text-xs text-blue-600 hover:underline"
+                    onClick={checkAuthentication}
+                  >
+                    Refresh Auth
+                  </button>
+                  <button 
+                    className="text-xs text-blue-600 hover:underline"
+                    onClick={() => window.open('http://localhost:5000/api/auth/debug-session', '_blank')}
+                  >
+                    Debug Session
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </DialogContent>

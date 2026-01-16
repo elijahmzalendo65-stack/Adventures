@@ -44,33 +44,23 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// DYNAMIC BASE URL to handle CORS issues
-const getBaseUrl = () => {
-  // If we're in development/localhost
-  if (window.location.hostname === 'localhost' || 
-      window.location.hostname === '127.0.0.1' ||
-      window.location.hostname === '') {
-    
-    // Use the same protocol and port as the frontend
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    const port = window.location.port;
-    
-    // If port is 8080 (common for React/Vite), backend is likely on 5000
-    if (port === '8080' || port === '3000' || port === '5173') {
-      return `${protocol}//localhost:5000`;
-    }
-    
-    // Otherwise use same origin
-    return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
-  }
-  
-  // Production URL
-  return "https://mlima-adventures.onrender.com";
+// FIX: Use environment-based URL
+const API_BASE_URL = process.env.NODE_ENV === 'production' 
+  ? "https://mlima-adventures.onrender.com"
+  : "http://localhost:5000"; // Change this to your local Flask server
+
+// OR use Vite environment variable:
+// const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+// OR create a simple config:
+const config = {
+  apiBaseUrl: window.location.hostname === 'localhost' 
+    ? "http://localhost:5000" 
+    : "https://mlima-adventures.onrender.com"
 };
 
-const API_BASE_URL = getBaseUrl();
-console.log("🌐 Using API Base URL:", API_BASE_URL);
+// Use this:
+// const API_BASE_URL = config.apiBaseUrl;
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -91,26 +81,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return null;
   };
 
-  // Initialize auth on mount - LOCALSTORAGE FIRST APPROACH
+  // Initialize auth on mount
   useEffect(() => {
     const initializeAuth = async () => {
       console.log("🔍 Initializing authentication...");
+      console.log("🌐 API Base URL:", API_BASE_URL);
       
-      // 1. FIRST: Always check localStorage for immediate user experience
+      // Check localStorage first
       const storedUser = getUserFromLocalStorage();
       if (storedUser) {
         console.log("📱 Found stored user:", storedUser.username);
         setUser(storedUser);
         setIsAuthenticated(true);
-        console.log("✅ User authenticated from localStorage");
       }
       
-      // 2. SECOND: Verify with server in background
+      // Verify with server
       try {
         await checkAuth();
       } catch (error) {
         console.error("❌ Background auth check failed:", error);
-        // Keep localStorage auth even if server check fails
       }
       
       setLoading(false);
@@ -120,12 +109,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   // ----------------------
-  // LOGIN (Session-based with localStorage backup)
+  // LOGIN
   // ----------------------
   const login = async (identifier: string, password: string): Promise<boolean> => {
     try {
-      console.log("🔐 Attempting login with:", identifier);
-      console.log("🌐 API Base URL:", API_BASE_URL);
+      console.log("🔐 Attempting login to:", `${API_BASE_URL}/api/auth/login`);
       
       const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
@@ -133,7 +121,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           "Content-Type": "application/json",
           "Accept": "application/json"
         },
-        credentials: "include",
+        credentials: "include", // IMPORTANT: For session cookies
+        mode: 'cors', // Explicitly set CORS mode
         body: JSON.stringify({
           email: identifier.includes("@") ? identifier : undefined,
           username: !identifier.includes("@") ? identifier : undefined,
@@ -141,74 +130,40 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }),
       });
 
-      console.log("📡 Login response status:", res.status, res.statusText);
+      console.log("📡 Login response status:", res.status);
       
-      // Check if response is JSON
       const contentType = res.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
-        console.error("❌ Server returned non-JSON response during login");
         const text = await res.text();
-        console.error("📝 Response text:", text.substring(0, 200));
+        console.error("❌ Non-JSON response:", text.substring(0, 200));
         return false;
       }
 
       const data = await res.json();
-      console.log("✅ Login response data:", data);
+      console.log("✅ Login response:", data);
 
       if (res.ok && data.user) {
-        // IMMEDIATE: Store user data
         setUser(data.user);
         setIsAuthenticated(true);
-        
-        // Store user data in localStorage as primary source
         localStorage.setItem('user', JSON.stringify(data.user));
-        
-        console.log("✅ Login successful for user:", data.user.username);
-        console.log("💾 User saved to localStorage");
-        
-        // Background server verification (optional)
-        setTimeout(() => checkAuth(), 1000);
-        
+        console.log("✅ Login successful");
         return true;
       }
 
-      console.error("❌ Login failed:", data.message || "Unknown error");
+      console.error("❌ Login failed:", data.message);
       return false;
     } catch (err) {
       console.error("❌ Login request failed:", err);
-      // If fetch fails due to CORS, check if it's a development environment
-      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        console.warn("⚠️ CORS error detected. Trying to fix origin mismatch...");
-        // Could be CORS issue - still try to simulate login for development
-        const mockUser: User = {
-          id: 1,
-          username: identifier,
-          email: identifier.includes("@") ? identifier : `${identifier}@example.com`,
-          is_admin: identifier === "admin",
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        
-        // For development only: simulate login
-        if (process.env.NODE_ENV === 'development') {
-          console.warn("⚠️ DEVELOPMENT MODE: Simulating login due to CORS");
-          setUser(mockUser);
-          setIsAuthenticated(true);
-          localStorage.setItem('user', JSON.stringify(mockUser));
-          return true;
-        }
-      }
       return false;
     }
   };
 
   // ----------------------
-  // SIGNUP (Session-based with localStorage backup)
+  // SIGNUP
   // ----------------------
   const signup = async (username: string, email: string, password: string): Promise<boolean> => {
     try {
-      console.log("📝 Attempting signup with:", { username, email });
-      console.log("🌐 API Base URL:", API_BASE_URL);
+      console.log("📝 Attempting signup to:", `${API_BASE_URL}/api/auth/register`);
       
       const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: "POST",
@@ -217,6 +172,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           "Accept": "application/json"
         },
         credentials: "include",
+        mode: 'cors',
         body: JSON.stringify({ 
           username, 
           email, 
@@ -224,59 +180,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }),
       });
 
-      console.log("📡 Signup response status:", res.status, res.statusText);
+      console.log("📡 Signup response status:", res.status);
       
       const contentType = res.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
-        console.error("❌ Server returned non-JSON response during signup");
         const text = await res.text();
-        console.error("📝 Response text:", text.substring(0, 200));
+        console.error("❌ Non-JSON response:", text.substring(0, 200));
         return false;
       }
 
       const data = await res.json();
-      console.log("✅ Signup response data:", data);
+      console.log("✅ Signup response:", data);
 
       if (res.ok && data.user) {
-        // IMMEDIATE: Store user data
         setUser(data.user);
         setIsAuthenticated(true);
-        
-        // Store user data in localStorage as primary source
         localStorage.setItem('user', JSON.stringify(data.user));
-        
-        console.log("✅ Signup successful for user:", data.user.username);
-        console.log("💾 User saved to localStorage");
-        
-        // Background server verification (optional)
-        setTimeout(() => checkAuth(), 1000);
-        
+        console.log("✅ Signup successful");
         return true;
       }
 
-      console.error("❌ Signup failed:", data.message || "Unknown error");
+      console.error("❌ Signup failed:", data.message);
       return false;
     } catch (err) {
       console.error("❌ Signup request failed:", err);
-      // For development: simulate signup on CORS error
-      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        if (process.env.NODE_ENV === 'development') {
-          console.warn("⚠️ DEVELOPMENT MODE: Simulating signup due to CORS");
-          const mockUser: User = {
-            id: Date.now(),
-            username,
-            email,
-            is_admin: false,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
-          
-          setUser(mockUser);
-          setIsAuthenticated(true);
-          localStorage.setItem('user', JSON.stringify(mockUser));
-          return true;
-        }
-      }
       return false;
     }
   };
@@ -291,16 +218,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const res = await fetch(`${API_BASE_URL}/api/auth/logout`, {
         method: "POST",
         credentials: "include",
+        mode: 'cors',
         headers: {
           "Accept": "application/json"
         },
       });
 
-      console.log("📡 Logout response status:", res.status, res.statusText);
+      console.log("📡 Logout response status:", res.status);
     } catch (err) {
       console.error("❌ Logout request failed:", err);
     } finally {
-      // ALWAYS clear local state regardless of server response
       setUser(null);
       setIsAuthenticated(false);
       localStorage.removeItem('user');
@@ -309,114 +236,63 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // ----------------------
-  // CHECK AUTH - UPDATED: localStorage is primary source
+  // CHECK AUTH
   // ----------------------
   const checkAuth = async (): Promise<void> => {
     try {
-      console.log("🔍 Checking authentication status...");
+      console.log("🔍 Checking auth at:", `${API_BASE_URL}/api/auth/check-auth`);
       
-      // Check localStorage first - this is our source of truth
       const storedUser = getUserFromLocalStorage();
       if (storedUser) {
-        console.log("📱 Primary: User found in localStorage:", storedUser.username);
         setUser(storedUser);
         setIsAuthenticated(true);
-        
-        // Background server verification (for sync only)
-        try {
-          const res = await fetch(`${API_BASE_URL}/api/auth/check-auth`, {
-            method: "GET",
-            credentials: "include",
-            headers: {
-              "Accept": "application/json"
-            },
-          });
-
-          console.log("📡 Background auth check status:", res.status);
-          
-          if (res.ok) {
-            const contentType = res.headers.get("content-type");
-            if (contentType && contentType.includes("application/json")) {
-              const data = await res.json();
-              console.log("📡 Server auth response:", data);
-              
-              if (data.authenticated && data.user) {
-                // Server confirms - update localStorage with latest data
-                localStorage.setItem('user', JSON.stringify(data.user));
-                setUser(data.user);
-                console.log("✅ Server confirmed authentication");
-              } else if (data.user) {
-                // Some servers just return user data
-                localStorage.setItem('user', JSON.stringify(data.user));
-                setUser(data.user);
-                console.log("✅ Server returned user data");
-              } else {
-                console.log("⚠️ Server says not authenticated, but we keep localStorage");
-                // Server bug - we keep localStorage auth
-              }
-            }
-          }
-        } catch (serverErr) {
-          console.error("❌ Background auth check failed:", serverErr);
-          // Keep localStorage auth on server error
-        }
-        return; // Exit - we're authenticated from localStorage
       }
       
-      // If no localStorage user, check server
-      console.log("📱 No localStorage user, checking server...");
       const res = await fetch(`${API_BASE_URL}/api/auth/check-auth`, {
         method: "GET",
         credentials: "include",
+        mode: 'cors',
         headers: {
           "Accept": "application/json"
         },
       });
 
-      console.log("📡 Server auth check status:", res.status);
+      console.log("📡 Auth check status:", res.status);
 
       if (!res.ok) {
         console.log("❌ Server auth check failed");
-        setUser(null);
-        setIsAuthenticated(false);
+        if (!storedUser) {
+          setUser(null);
+          setIsAuthenticated(false);
+        }
         return;
       }
 
       const contentType = res.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
-        console.error("❌ Server returned non-JSON response");
-        setUser(null);
-        setIsAuthenticated(false);
+        console.error("❌ Non-JSON response");
         return;
       }
 
       const data = await res.json();
-      console.log("✅ Server auth response:", data);
+      console.log("✅ Auth response:", data);
 
       if (data.authenticated && data.user) {
         setUser(data.user);
         setIsAuthenticated(true);
         localStorage.setItem('user', JSON.stringify(data.user));
-        console.log("✅ User authenticated by server");
       } else if (data.user) {
         setUser(data.user);
         setIsAuthenticated(true);
         localStorage.setItem('user', JSON.stringify(data.user));
-        console.log("✅ User authenticated via user data");
-      } else {
+      } else if (!storedUser) {
         setUser(null);
         setIsAuthenticated(false);
-        console.log("❌ User not authenticated");
       }
     } catch (err) {
-      console.error("❌ Auth check request failed:", err);
-      // On network error, check localStorage
+      console.error("❌ Auth check failed:", err);
       const storedUser = getUserFromLocalStorage();
-      if (storedUser) {
-        setUser(storedUser);
-        setIsAuthenticated(true);
-        console.log("✅ Restored user from localStorage after network error");
-      } else {
+      if (!storedUser) {
         setUser(null);
         setIsAuthenticated(false);
       }
@@ -431,6 +307,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
         method: "GET",
         credentials: "include",
+        mode: 'cors',
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json"
@@ -442,11 +319,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (data.user) {
           setUser(data.user);
           localStorage.setItem('user', JSON.stringify(data.user));
-          console.log("✅ User data refreshed");
         }
       }
     } catch (err) {
-      console.error("❌ Failed to refresh user data:", err);
+      console.error("❌ Failed to refresh user:", err);
     }
   };
 
@@ -454,72 +330,49 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // FETCH USER BOOKINGS
   // ----------------------
   const fetchUserBookings = async (): Promise<any[]> => {
-    // Use both isAuthenticated AND localStorage check
     const currentUser = user || getUserFromLocalStorage();
     
     if (!currentUser) {
-      console.log("❌ User not logged in, cannot fetch bookings");
+      console.log("❌ User not logged in");
       return [];
     }
 
     try {
-      console.log("📋 Fetching user bookings for:", currentUser.username);
-      
-      // Try different endpoints in order
       const endpoints = [
         `${API_BASE_URL}/api/bookings/my-bookings`,
         `${API_BASE_URL}/api/bookings/user/${currentUser.id}`,
         `${API_BASE_URL}/api/bookings`,
-        `${API_BASE_URL}/api/auth/bookings`
       ];
       
       for (const endpoint of endpoints) {
         try {
-          console.log(`🔄 Trying endpoint: ${endpoint}`);
           const res = await fetch(endpoint, {
             method: "GET",
             credentials: "include",
+            mode: 'cors',
             headers: {
               "Accept": "application/json"
             },
           });
 
-          console.log(`📡 Response status: ${res.status}`);
-          
           if (res.ok) {
-            const contentType = res.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-              console.error("❌ Server returned non-JSON response");
-              continue;
-            }
-
             const data = await res.json();
-            console.log("✅ Bookings data received");
-            
-            // Handle different response formats
             if (Array.isArray(data)) {
-              console.log(`✅ Found ${data.length} bookings`);
               return data;
             } else if (data.bookings && Array.isArray(data.bookings)) {
-              console.log(`✅ Found ${data.bookings.length} bookings`);
               return data.bookings;
             } else if (data.data && Array.isArray(data.data)) {
-              console.log(`✅ Found ${data.data.length} bookings`);
               return data.data;
             }
-            
-            console.log("⚠️ Unexpected response format");
-            return [];
           }
         } catch (err) {
-          console.error(`❌ Error with endpoint ${endpoint}:`, err);
+          console.error(`❌ Error with ${endpoint}:`, err);
         }
       }
       
-      console.log("⚠️ All booking endpoints failed");
       return [];
     } catch (err) {
-      console.error("❌ Failed to fetch user bookings:", err);
+      console.error("❌ Failed to fetch bookings:", err);
       return [];
     }
   };
@@ -531,7 +384,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const currentUser = user || getUserFromLocalStorage();
     
     if (!currentUser?.is_admin) {
-      console.log("❌ User is not admin, cannot fetch stats");
       return null;
     }
 
@@ -539,20 +391,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const res = await fetch(`${API_BASE_URL}/api/auth/admin/stats`, {
         method: "GET",
         credentials: "include",
+        mode: 'cors',
         headers: {
           "Accept": "application/json"
         },
       });
 
       if (res.ok) {
-        const data = await res.json();
-        return data as AdminStats;
+        return await res.json();
       }
-      
-      console.error("❌ Failed to fetch admin stats, status:", res.status);
       return null;
     } catch (err) {
-      console.error("❌ Failed to fetch admin stats:", err);
+      console.error("❌ Failed to fetch stats:", err);
       return null;
     }
   };
@@ -561,7 +411,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const currentUser = user || getUserFromLocalStorage();
     
     if (!currentUser?.is_admin) {
-      console.log("❌ User is not admin, cannot fetch users");
       return [];
     }
 
@@ -569,6 +418,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const res = await fetch(`${API_BASE_URL}/api/auth/admin/users`, {
         method: "GET",
         credentials: "include",
+        mode: 'cors',
         headers: {
           "Accept": "application/json"
         },
@@ -578,11 +428,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const data = await res.json();
         return data.users || [];
       }
-      
-      console.error("❌ Failed to fetch admin users, status:", res.status);
       return [];
     } catch (err) {
-      console.error("❌ Failed to fetch admin users:", err);
+      console.error("❌ Failed to fetch users:", err);
       return [];
     }
   };
@@ -591,7 +439,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const currentUser = user || getUserFromLocalStorage();
     
     if (!currentUser?.is_admin) {
-      console.log("❌ User is not admin, cannot fetch bookings");
       return [];
     }
 
@@ -599,6 +446,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const res = await fetch(`${API_BASE_URL}/api/auth/admin/bookings`, {
         method: "GET",
         credentials: "include",
+        mode: 'cors',
         headers: {
           "Accept": "application/json"
         },
@@ -608,8 +456,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const data = await res.json();
         return data.bookings || [];
       }
-      
-      console.error("❌ Failed to fetch admin bookings, status:", res.status);
       return [];
     } catch (err) {
       console.error("❌ Failed to fetch admin bookings:", err);
@@ -623,7 +469,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">Loading authentication...</p>
+          <p className="mt-4 text-muted-foreground">Loading...</p>
         </div>
       </div>
     );

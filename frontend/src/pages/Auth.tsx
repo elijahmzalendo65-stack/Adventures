@@ -32,10 +32,6 @@ const Auth: React.FC = () => {
         if (storedUser) {
           const parsedUser = JSON.parse(storedUser);
           console.log("📱 Found user in localStorage:", parsedUser.username);
-          // If we have localStorage user but React state hasn't updated yet
-          if (!isAuthenticated) {
-            console.log("🔄 LocalStorage user found, waiting for AuthContext sync...");
-          }
         }
       } catch (error) {
         console.error("Error checking localStorage:", error);
@@ -45,17 +41,15 @@ const Auth: React.FC = () => {
     checkIfLoggedIn();
   }, []);
 
-  // Redirect when authenticated - with multiple checks
+  // Redirect when authenticated
   useEffect(() => {
     const redirectIfAuthenticated = () => {
-      // Check both AuthContext state AND localStorage
       const hasAuth = isAuthenticated || localStorage.getItem('user');
       
       if (hasAuth && !isRedirecting) {
         setIsRedirecting(true);
         console.log("✅ User authenticated, redirecting to home...");
         
-        // Short delay to show success message
         setTimeout(() => {
           navigate("/");
         }, 500);
@@ -65,39 +59,21 @@ const Auth: React.FC = () => {
     redirectIfAuthenticated();
   }, [isAuthenticated, user, isRedirecting, navigate]);
 
-  // Additional check: if localStorage has user but AuthContext hasn't updated
-  useEffect(() => {
-    const checkLocalStorageSync = () => {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser && !isAuthenticated) {
-        console.log("⚠️ LocalStorage has user but AuthContext not updated yet");
-        // This should trigger AuthContext to sync
-        setTimeout(() => {
-          if (!isAuthenticated) {
-            console.log("🔄 Still not synced, checking localStorage again...");
-          }
-        }, 1000);
-      }
-    };
-    
-    const interval = setInterval(checkLocalStorageSync, 500);
-    return () => clearInterval(interval);
-  }, [isAuthenticated]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Debug info
+    console.log("🌐 ========== AUTH FORM SUBMISSION ==========");
+    console.log("📱 Mode:", isLogin ? "LOGIN" : "SIGNUP");
+    console.log("👤 Username:", username);
+    if (!isLogin) console.log("📧 Email:", email);
+    console.log("🔒 Password length:", password.length);
+    
     setLoading(true);
     setMessage(null);
     setIsRedirecting(false);
 
     try {
-      console.log("🔐 Auth form submitted:", {
-        isLogin,
-        username,
-        email: isLogin ? "N/A (using username/email)" : email,
-        passwordLength: password.length,
-      });
-
       let success = false;
 
       if (isLogin) {
@@ -141,7 +117,6 @@ const Auth: React.FC = () => {
           console.log("✅ Signup successful via AuthContext");
           setMessage({ text: "Account created successfully! You are now logged in.", type: 'success' });
           
-          // Force immediate localStorage check
           setTimeout(() => {
             const storedUser = localStorage.getItem('user');
             if (storedUser) {
@@ -158,6 +133,7 @@ const Auth: React.FC = () => {
       setMessage({ text: "An error occurred. Please try again.", type: 'error' });
     } finally {
       setLoading(false);
+      console.log("🌐 ========== FORM SUBMISSION COMPLETE ==========");
     }
   };
 
@@ -166,7 +142,7 @@ const Auth: React.FC = () => {
     setMessage(null);
     setIsRedirecting(false);
     
-    // Demo credentials
+    // Demo credentials - UPDATED
     const credentials: Record<string, { username: string; password: string }> = {
       admin: { username: "admin", password: "admin123" },
       user: { username: "testuser", password: "test123" },
@@ -176,6 +152,7 @@ const Auth: React.FC = () => {
     if (!creds) return;
 
     console.log(`🔐 Attempting demo login as ${demoUser}...`);
+    console.log(`👤 Using credentials: ${creds.username} / ${creds.password}`);
     
     try {
       const success = await login(creds.username, creds.password);
@@ -192,6 +169,64 @@ const Auth: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // NEW: Direct API test function
+  const testApiConnection = async () => {
+    console.log("🧪 ========== API CONNECTION TEST ==========");
+    
+    try {
+      // Test 1: Simple GET to health endpoint
+      console.log("🔧 Testing GET request to /api/health...");
+      const healthRes = await fetch("http://localhost:5000/api/health");
+      console.log("📡 Health endpoint status:", healthRes.status);
+      console.log("📡 Health endpoint headers:", Object.fromEntries(healthRes.headers.entries()));
+      
+      // Test 2: CORS preflight
+      console.log("🔧 Testing OPTIONS preflight...");
+      const optionsRes = await fetch("http://localhost:5000/api/auth/login", {
+        method: "OPTIONS",
+        headers: {
+          "Origin": "http://localhost:8080",
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "Content-Type"
+        }
+      });
+      console.log("📡 OPTIONS status:", optionsRes.status);
+      
+      // Test 3: Direct login attempt
+      console.log("🔧 Testing direct login API call...");
+      const testLogin = await fetch("http://localhost:5000/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Origin": "http://localhost:8080"
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          username: "admin",
+          password: "admin123"
+        })
+      });
+      console.log("📡 Direct login status:", testLogin.status);
+      
+      if (testLogin.ok) {
+        const data = await testLogin.json();
+        console.log("✅ Direct login successful:", data);
+        setMessage({ text: "API connection successful! Server is responding.", type: 'success' });
+      } else {
+        const text = await testLogin.text();
+        console.error("❌ Direct login failed:", text);
+        setMessage({ text: "API connection failed. Check server logs.", type: 'error' });
+      }
+      
+    } catch (error) {
+      console.error("❌ API test failed completely:", error);
+      setMessage({ text: "Cannot connect to API server. Is Flask running?", type: 'error' });
+    }
+    
+    console.log("🧪 ========== API TEST COMPLETE ==========");
   };
 
   return (
@@ -253,6 +288,24 @@ const Auth: React.FC = () => {
                   User Demo
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* API Test Button (Debug - Remove in production) */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mb-6 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800 mb-2 text-center font-medium">
+                🔧 API Connection Test
+              </p>
+              <button
+                onClick={testApiConnection}
+                className="w-full bg-yellow-100 text-yellow-800 py-2 px-4 rounded-lg font-medium hover:bg-yellow-200 transition-colors"
+              >
+                Test Server Connection
+              </button>
+              <p className="text-xs text-yellow-600 mt-2 text-center">
+                Checks if Flask server is reachable
+              </p>
             </div>
           )}
 
@@ -363,7 +416,6 @@ const Auth: React.FC = () => {
               <button
                 onClick={() => {
                   setIsLogin(!isLogin);
-                  // Clear password fields when toggling
                   setPassword("");
                   setConfirmPassword("");
                   setMessage(null);
@@ -379,14 +431,19 @@ const Auth: React.FC = () => {
           {/* Debug info (remove in production) */}
           {process.env.NODE_ENV === 'development' && (
             <div className="mt-6 pt-6 border-t border-gray-200">
-              <p className="text-xs text-gray-500 text-center">
-                Debug: Auth State - {isAuthenticated ? "Authenticated" : "Not Authenticated"}
-                {user && ` | User: ${user.username}`}
-                {isRedirecting && " | Redirecting..."}
-              </p>
-              <p className="text-xs text-gray-400 text-center mt-1">
-                localStorage: {localStorage.getItem('user') ? 'Has user' : 'No user'}
-              </p>
+              <div className="space-y-2">
+                <p className="text-xs text-gray-600">
+                  <span className="font-medium">Auth State:</span> {isAuthenticated ? "✅ Authenticated" : "❌ Not Authenticated"}
+                  {user && ` | 👤 User: ${user.username}`}
+                  {isRedirecting && " | 🔄 Redirecting..."}
+                </p>
+                <p className="text-xs text-gray-500">
+                  <span className="font-medium">LocalStorage:</span> {localStorage.getItem('user') ? '✅ Has user' : '❌ No user'}
+                </p>
+                <p className="text-xs text-gray-400">
+                  <span className="font-medium">API Target:</span> localhost:5000 (check AuthContext.tsx)
+                </p>
+              </div>
             </div>
           )}
         </div>
